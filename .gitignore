@@ -9,3 +9,11 @@ cabal-dev
 .cabal-sandbox/
 cabal.sandbox.config
 cabal.config
+*.swp
+*.annot
+*.cst.html
+*.fq*
+*.json
+*.html
+*.out
+*.smt2
