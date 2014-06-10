@@ -1,6 +1,7 @@
 module RG where
 
 import Data.IORef as R
+import GHC.Base
 
 {- Liquid Rely-Guarantee References / RG-Haskell
 
@@ -45,6 +46,18 @@ import Data.IORef as R
 {-@ data RGRef a <p :: a -> Prop, r :: a -> a -> Prop > 
     = Wrap (r :: R.IORef a<p>) @-}
 data RGRef a = Wrap (R.IORef a)
+
+{-@ data GHC.Base.IO a <p :: RealWorld -> Prop , q :: RealWorld -> a -> Prop >
+    = IO (act :: (RealWorld<p> -> ( RealWorld , a )<q>)) @-} -- Should be (# RealWorld, a #)
+
+{-@ ptsTo :: IORef a -> RealWorld -> a -> {v:Bool | ((Prop v) <=> (v = True)) } @-}
+ptsTo :: IORef a -> RealWorld -> a -> Bool
+ptsTo r w v = undefined
+
+{- assume readIORef :: x:(IORef a) -> {io:IO a <{\x -> True}, ptsTo x> | true} @-}
+{- assume writeIORef2 :: x:(IORef a) -> old:a -> v:a -> (IO () <ptsTo x old , {\x -> True}>) @-}
+writeIORef2 :: IORef a -> a -> a -> IO ()
+writeIORef2 r old new = writeIORef r new
 
 {- A stability proof can be embedded into LH as a function of type:
     x:a<p> -> y:a<r x> -> {v:a<p> | v = y}
