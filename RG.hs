@@ -44,7 +44,7 @@ import GHC.Base
    constructor with one physical argument, so at runtime these will look the same as IORefs:
    we won't pay time or space overhead. (In fact, in GHC, IORefs are a single constructor wrapping an STRef.) -}
 {-@ data RGRef a <p :: a -> Prop, r :: a -> a -> Prop > 
-    = Wrap (r :: R.IORef a<p>) @-}
+    = Wrap (rgref_ref :: R.IORef a<p>) @-}
 data RGRef a = Wrap (R.IORef a)
 
 
@@ -84,7 +84,7 @@ proves_nothing x y = y --proves_nothing x y
 
 {- TODO: e2 is a hack to sidestep the inference of false for r,
    it forces r to be inhabited. -}
-{- newRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+{-@ newRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
                     e:a<p> -> 
                     e2:a<r e> ->
                     f:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
@@ -108,7 +108,7 @@ writeRGRef  (Wrap x) e pf = writeIORef x e
 
 -- An anonymous fn inside modifyRGref doesn't work after updating
 -- (modifyIORef's type loses the refinements)
-{- coerce :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+{-@ coerce :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
               f:(x:a<p> -> a<r x>) ->
               pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
 	      a<p> ->
@@ -116,7 +116,7 @@ writeRGRef  (Wrap x) e pf = writeIORef x e
 coerce :: (a -> a) -> (a -> a -> a) -> a -> a
 coerce f pf v = pf v (f v)
 
-{- modifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+{-@ modifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
                     rf:(RGRef<p, r> a) ->
                     f:(x:a<p> -> a<r x>) ->
                     pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
@@ -124,7 +124,7 @@ coerce f pf v = pf v (f v)
 modifyRGRef :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
 modifyRGRef (Wrap x) f pf = modifyIORef x (\ v -> pf v (f v))
 
-{- modifyRGRef' :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+{-@ modifyRGRef' :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
                     RGRef<p, r> a ->
                     f:(x:a<p> -> a<r x>) ->
                     pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
@@ -137,23 +137,23 @@ modifyRGRef' (Wrap x) f pf = modifyIORef' x (\ v -> pf v (f v))
 
 
 -- Monotonically increasing counter!
-{- alloc_counter :: () -> IO (RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int) @-}
---alloc_counter :: () -> IO (RGRef Int)
---alloc_counter _ = newRGRef 1 3 stable_monocount
+{-@ alloc_counter :: () -> IO (RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int) @-}
+alloc_counter :: () -> IO (RGRef Int)
+alloc_counter _ = newRGRef 1 3 stable_monocount
 
-{- inc_counter :: RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int -> IO () @-}
---inc_counter :: RGRef Int -> IO ()
---inc_counter r = modifyRGRef r (\x -> x + 1) stable_monocount
+{-@ inc_counter :: RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int -> IO () @-}
+inc_counter :: RGRef Int -> IO ()
+inc_counter r = modifyRGRef r (\x -> x + 1) stable_monocount
 
 
---main = do {
---          r <- newRGRef 1 3 stable_monocount; -- SHOULD BE ref{Int|>0}[<=,<=] (and is)
---          r2 <- newRGRef 2 9 proves_nothing;  -- SHOULD BE ref{Int|>0}[havoc,havoc].
---          -- Instead we get the same as above....
---          --r3 <- newRGRef 3 10 proves_reflexivity; -- BAD, correctly rejected
---          c <- alloc_counter ();
---          return ()
---       }
+main = do {
+          r <- newRGRef 1 3 stable_monocount; -- SHOULD BE ref{Int|>0}[<=,<=] (and is)
+          r2 <- newRGRef 2 9 proves_nothing;  -- SHOULD BE ref{Int|>0}[havoc,havoc].
+          -- Instead we get the same as above....
+          --r3 <- newRGRef 3 10 proves_reflexivity; -- BAD, correctly rejected
+          c <- alloc_counter ();
+          return ()
+       }
 
 
 -- The LH folks fixed this
