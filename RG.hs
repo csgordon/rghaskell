@@ -47,14 +47,8 @@ import GHC.Base
     = Wrap (r :: R.IORef a<p>) @-}
 data RGRef a = Wrap (R.IORef a)
 
-{-@ data GHC.Base.IO a <p :: RealWorld -> Prop , q :: RealWorld -> a -> Prop >
-    = IO (act :: (RealWorld<p> -> ( RealWorld , a )<q>)) @-} -- Should be (# RealWorld, a #)
 
-{-@ ptsTo :: IORef a -> RealWorld -> a -> {v:Bool | ((Prop v) <=> (v = True)) } @-}
-ptsTo :: IORef a -> RealWorld -> a -> Bool
-ptsTo r w v = undefined
 
-{- assume readIORef :: x:(IORef a) -> {io:IO a <{\x -> True}, ptsTo x> | true} @-}
 {- assume writeIORef2 :: x:(IORef a) -> old:a -> v:a -> (IO () <ptsTo x old , {\x -> True}>) @-}
 writeIORef2 :: IORef a -> a -> a -> IO ()
 writeIORef2 r old new = writeIORef r new
@@ -63,13 +57,6 @@ writeIORef2 r old new = writeIORef r new
     x:a<p> -> y:a<r x> -> {v:a<p> | v = y}
     This encodes the requirement that knowing P x and R x y is sufficient to deduce P y.
 -}
-
--- Possible type shorthands, though these produce parsing errors when applied to predicates of the
--- form {\ x -> ...} when parsing the \
-{-@ type Stable a p r = x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)} @-}
-
-{-@ predicate Pos x = x > 0 @-}
-{-@ predicate LE x y = x <= y @-}
 
 -- Requires explicit type anno for LH type to refine the inferred Haskell type
 {-@ stable_monocount :: x:{v:Int | v > 0 } -> y:{v:Int | x <= v } -> {v:Int | ((v = y) && (v > 0)) } @-}
@@ -97,7 +84,7 @@ proves_nothing x y = y --proves_nothing x y
 
 {- TODO: e2 is a hack to sidestep the inference of false for r,
    it forces r to be inhabited. -}
-{-@ newRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+{- newRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
                     e:a<p> -> 
                     e2:a<r e> ->
                     f:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
@@ -117,8 +104,19 @@ readRGRef (Wrap x) = readIORef x
 writeRGRef :: RGRef a -> a -> (a -> a -> Bool) -> IO ()
 writeRGRef  (Wrap x) e pf = writeIORef x e
 
+{-@ assume modifyIORef :: forall <p :: a -> Prop>. IORef a<p> -> (a<p> -> a<p>) -> IO () @-}
 
-{-@ modifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+-- An anonymous fn inside modifyRGref doesn't work after updating
+-- (modifyIORef's type loses the refinements)
+{- coerce :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+              f:(x:a<p> -> a<r x>) ->
+              pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
+	      a<p> ->
+	      a<p> @-}
+coerce :: (a -> a) -> (a -> a -> a) -> a -> a
+coerce f pf v = pf v (f v)
+
+{- modifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
                     rf:(RGRef<p, r> a) ->
                     f:(x:a<p> -> a<r x>) ->
                     pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
@@ -126,7 +124,7 @@ writeRGRef  (Wrap x) e pf = writeIORef x e
 modifyRGRef :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
 modifyRGRef (Wrap x) f pf = modifyIORef x (\ v -> pf v (f v))
 
-{-@ modifyRGRef' :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+{- modifyRGRef' :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
                     RGRef<p, r> a ->
                     f:(x:a<p> -> a<r x>) ->
                     pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
@@ -139,23 +137,23 @@ modifyRGRef' (Wrap x) f pf = modifyIORef' x (\ v -> pf v (f v))
 
 
 -- Monotonically increasing counter!
-{-@ alloc_counter :: () -> IO (RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int) @-}
-alloc_counter :: () -> IO (RGRef Int)
-alloc_counter _ = newRGRef 1 3 stable_monocount
+{- alloc_counter :: () -> IO (RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int) @-}
+--alloc_counter :: () -> IO (RGRef Int)
+--alloc_counter _ = newRGRef 1 3 stable_monocount
 
-{-@ inc_counter :: RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int -> IO () @-}
-inc_counter :: RGRef Int -> IO ()
-inc_counter r = modifyRGRef r (\x -> x + 1) stable_monocount
+{- inc_counter :: RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int -> IO () @-}
+--inc_counter :: RGRef Int -> IO ()
+--inc_counter r = modifyRGRef r (\x -> x + 1) stable_monocount
 
 
-main = do {
-          r <- newRGRef 1 3 stable_monocount; -- SHOULD BE ref{Int|>0}[<=,<=] (and is)
-          r2 <- newRGRef 2 9 proves_nothing;  -- SHOULD BE ref{Int|>0}[havoc,havoc].
-          -- Instead we get the same as above....
-          --r3 <- newRGRef 3 10 proves_reflexivity; -- BAD, correctly rejected
-          c <- alloc_counter ();
-          return ()
-       }
+--main = do {
+--          r <- newRGRef 1 3 stable_monocount; -- SHOULD BE ref{Int|>0}[<=,<=] (and is)
+--          r2 <- newRGRef 2 9 proves_nothing;  -- SHOULD BE ref{Int|>0}[havoc,havoc].
+--          -- Instead we get the same as above....
+--          --r3 <- newRGRef 3 10 proves_reflexivity; -- BAD, correctly rejected
+--          c <- alloc_counter ();
+--          return ()
+--       }
 
 
 -- The LH folks fixed this

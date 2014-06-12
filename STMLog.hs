@@ -25,19 +25,14 @@ import Control.Exception
 import Data.IORef
 import RG
 
-{-@ predicate Any x = 1 > 0 @-}
-{-@ predicate Any2 x y = 1 > 0 @-}
-
+{-@ predicate Delta x y = 1 > 0 @-}
 -- The reference contains a rollback action to be executed on exceptions
-{- data STM a = STM (r :: (RGRef (IO ()) <{\_ -> True}, {\x y -> (x = y) or (exists f, y = f >> x)}> -> IO a)) @-}
-{- 
-data STM a
-= STM (r :: (RGRef (IO ()) < {\_ -> True}, {\x y -> True} > -> IO a))
-@-}
-{-@ data STM a = STM (r :: (RGRef< Any , Any2 > (IO ()) -> IO a)) @-}
+{- data STM a = STM (r :: (RGRef (IO ()) <{\_ -> True}, {\x y -> (x = y) or (exists f, y = f >> x)}> -> IO a)) -}
+{-@ data STM a = STM (r :: (RGRef<{\ x -> 1 > 0},{\ x y -> 1 > 0}> (IO ()) -> IO a)) @-}
 data STM a = STM (RGRef (IO ()) -> IO a)
--- STM should be a newtype, but I can't figure out how to make LH refine
+-- STM should be a newtype, but I can't figure out how to make LH refine newtypes
 
+{- unSTM :: STM a -> RGRef<{\ x -> Any x},{\ x y -> Delta x y}> (IO ()) -> IO a @-}
 unSTM :: STM a -> RGRef (IO ()) -> IO a
 unSTM (STM f) = f
 
