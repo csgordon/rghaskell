@@ -47,16 +47,33 @@ import GHC.Base
     = Wrap (rgref_ref :: R.IORef a<p>) @-}
 data RGRef a = Wrap (R.IORef a)
 
+-- !!!!!! Apparently this include directive is silently doing nothing
 {-@ include <GHC/Base/IO.spec> @-}
 {-@ measure pointsTo :: IORef a -> RealWorld -> a -> {v:Bool | (Prop v)} @-}
+{-@ data IO a <p :: RealWorld -> Prop , q :: RealWorld -> a -> Prop >
+     =  @-}
+ -- was IO (io_act :: (RealWorld<p> -> ( RealWorld , a )<q>))
+ -- Should be (# RealWorld, a #)
+{-
+assume (GHC.Base.bindIO) :: forall <p :: RealWorld -> Prop, q :: RealWorld -> a -> Prop, r :: a -> RealWorld -> a -> Prop>.
+                          (IO<p,q> a -> (x:a -> IO<q x,r x>) -> IO<p,{\ w v -> (exists[x:a]. r x w v)}> b)
+@-}
 {-@ 
 measure rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
                           RGRef a -> RealWorld -> a -> {v:Bool | (Prop v)} 
-rgpointsTo (Wrap r) (w) (v) = (pointsTo r w v)
 @-}
+-- Encode rgpointsTo (Wrap r) (w) (v) = (pointsTo r w v)
+{- axiom_rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
+                        ref:RGRef<p,r> a ->
+                        w:RealWorld ->
+                        c:a ->
+			{v:Bool | ((Prop v) <=> (pointsTo (rgref_ref ref) w c))} 
+@-}
+axiom_rgpointsTo :: RGRef a -> RealWorld -> a -> Bool
+axiom_rgpointsTo = undefined
 
-{-@ assume writeIORef2 :: forall <p :: a -> Prop>. 
-                          x:(IORef a) -> 
+{- assume writeIORef2 :: forall <p :: a -> Prop>. 
+                          x:(IORef a<p>) -> 
                           old:a<p> -> 
                           new:a<p> -> 
                           (IO<{\w -> (pointsTo x w old)}, {\w v -> (pointsTo x w new)}> ()) @-}
