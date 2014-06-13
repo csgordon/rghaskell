@@ -47,9 +47,14 @@ import GHC.Base
     = Wrap (rgref_ref :: R.IORef a<p>) @-}
 data RGRef a = Wrap (R.IORef a)
 
+{-@ include <GHC/Base/IO.spec> @-}
+{-@ measure pointsTo :: IORef a -> RealWorld -> a -> {v:Bool | (Prop v)} @-}
 
-
-{- assume writeIORef2 :: x:(IORef a) -> old:a -> v:a -> (IO () <ptsTo x old , {\x -> True}>) @-}
+{- assume writeIORef2 :: forall <p :: a -> Prop>. 
+                          x:(IORef a) -> 
+                          old:a<p> -> 
+                          new:a<p> -> 
+                          (IO<{\w -> pointsTo x w old}, {\w v -> pointsTo x w new}> ()) @-}
 writeIORef2 :: IORef a -> a -> a -> IO ()
 writeIORef2 r old new = writeIORef r new
 
@@ -104,7 +109,7 @@ readRGRef (Wrap x) = readIORef x
 writeRGRef :: RGRef a -> a -> (a -> a -> Bool) -> IO ()
 writeRGRef  (Wrap x) e pf = writeIORef x e
 
-{-@ assume modifyIORef :: forall <p :: a -> Prop>. IORef a<p> -> (a<p> -> a<p>) -> IO () @-}
+{- assume Data.IORef.modifyIORef :: forall <p :: a -> Prop>. IORef a<p> -> (a<p> -> a<p>) -> IO () @-}
 
 -- An anonymous fn inside modifyRGref doesn't work after updating
 -- (modifyIORef's type loses the refinements)
