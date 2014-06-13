@@ -49,12 +49,17 @@ data RGRef a = Wrap (R.IORef a)
 
 {-@ include <GHC/Base/IO.spec> @-}
 {-@ measure pointsTo :: IORef a -> RealWorld -> a -> {v:Bool | (Prop v)} @-}
+{-@ 
+measure rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
+                          RGRef a -> RealWorld -> a -> {v:Bool | (Prop v)} 
+rgpointsTo (Wrap r) (w) (v) = (pointsTo r w v)
+@-}
 
-{- assume writeIORef2 :: forall <p :: a -> Prop>. 
+{-@ assume writeIORef2 :: forall <p :: a -> Prop>. 
                           x:(IORef a) -> 
                           old:a<p> -> 
                           new:a<p> -> 
-                          (IO<{\w -> pointsTo x w old}, {\w v -> pointsTo x w new}> ()) @-}
+                          (IO<{\w -> (pointsTo x w old)}, {\w v -> (pointsTo x w new)}> ()) @-}
 writeIORef2 :: IORef a -> a -> a -> IO ()
 writeIORef2 r old new = writeIORef r new
 
