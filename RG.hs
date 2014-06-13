@@ -72,6 +72,11 @@ measure rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
 axiom_rgpointsTo :: RGRef a -> RealWorld -> a -> Bool
 axiom_rgpointsTo = undefined
 
+{- assume readIORefS :: x:{v: IORef a | true } -> IO<{\x -> (true)}, {\w v -> (pointsTo x w v)}> a @-}
+readIORefS :: IORef a -> IO a
+readIORefS = readIORef
+{-# INLINE readIORefS #-}
+
 {- assume writeIORef2 :: forall <p :: a -> Prop>. 
                           x:(IORef a<p>) -> 
                           old:a<p> -> 
@@ -79,6 +84,7 @@ axiom_rgpointsTo = undefined
                           (IO<{\w -> (pointsTo x w old)}, {\w v -> (pointsTo x w new)}> ()) @-}
 writeIORef2 :: IORef a -> a -> a -> IO ()
 writeIORef2 r old new = writeIORef r new
+{-# INLINE writeIORef2 #-}
 
 {- A stability proof can be embedded into LH as a function of type:
     x:a<p> -> y:a<r x> -> {v:a<p> | v = y}
