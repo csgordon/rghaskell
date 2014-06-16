@@ -49,7 +49,7 @@ data RGRef a = Wrap (R.IORef a)
 
 -- !!!!!! Apparently this include directive is silently doing nothing
 {-@ include <GHC/Base/IO.spec> @-}
-{-@ measure pointsTo :: IORef a -> RealWorld -> a -> {v:Bool | (Prop v)} @-}
+{-@ measure pointsTo :: IORef a -> RealWorld -> a -> Prop @-}
 {-@ data IO a <p :: RealWorld -> Prop , q :: RealWorld -> a -> Prop >
      =  @-}
  -- was IO (io_act :: (RealWorld<p> -> ( RealWorld , a )<q>))
@@ -60,10 +60,10 @@ assume (GHC.Base.bindIO) :: forall <p :: RealWorld -> Prop, q :: RealWorld -> a 
 @-}
 {-@ 
 measure rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-                          RGRef a -> RealWorld -> a -> {v:Bool | (Prop v)} 
+                          RGRef<p,r> a -> RealWorld -> a -> Prop
 @-}
 -- Encode rgpointsTo (Wrap r) (w) (v) = (pointsTo r w v)
-{- axiom_rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
+{-@ axiom_rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
                         ref:RGRef<p,r> a ->
                         w:RealWorld ->
                         c:a ->
@@ -72,12 +72,12 @@ measure rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
 axiom_rgpointsTo :: RGRef a -> RealWorld -> a -> Bool
 axiom_rgpointsTo = undefined
 
-{- assume readIORefS :: x:{v: IORef a | true } -> IO<{\x -> (true)}, {\w v -> (pointsTo x w v)}> a @-}
+{-@ assume readIORefS :: x:{v: IORef a | true } -> IO<{\x -> (true)}, {\w v -> (pointsTo x w v)}> a @-}
 readIORefS :: IORef a -> IO a
 readIORefS = readIORef
 {-# INLINE readIORefS #-}
 
-{- assume writeIORef2 :: forall <p :: a -> Prop>. 
+{-@ assume writeIORef2 :: forall <p :: a -> Prop>. 
                           x:(IORef a<p>) -> 
                           old:a<p> -> 
                           new:a<p> -> 
