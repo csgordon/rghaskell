@@ -54,9 +54,13 @@ data RGRef a = Wrap (R.IORef a)
      =  @-}
  -- was IO (io_act :: (RealWorld<p> -> ( RealWorld , a )<q>))
  -- Should be (# RealWorld, a #)
-{-
-assume (GHC.Base.bindIO) :: forall <p :: RealWorld -> Prop, q :: RealWorld -> a -> Prop, r :: a -> RealWorld -> a -> Prop>.
-                          (IO<p,q> a -> (x:a -> IO<q x,r x>) -> IO<p,{\ w v -> (exists[x:a]. r x w v)}> b)
+{-@ data IORef a <p :: a -> Prop, r :: a -> a -> Prop > = @-}
+
+-- below, true should be {\w -> (q w x)} but this is a sort error, since explicit app of abstract
+-- refinement isn't supported
+{-@
+assume bindIO :: forall <p :: RealWorld -> Prop, q :: RealWorld -> a -> Prop, r :: a -> RealWorld -> b -> Prop>.
+                          IO<p,q> a -> (x:a -> IO<{\w -> (true)},r x> b) -> (exists[x:a].(IO<p,r x> b))
 @-}
 {-@ 
 measure rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
@@ -128,14 +132,28 @@ newRGRef e e2 stabilityPf = do {
                             return (Wrap r)
                          }
 
--- LH's assume statement seems to only affect spec files
-{-@ readRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
-                    RGRef<p, r> a -> IO (a<p>) @-}
+{- blah :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+            x:IORef a ->
+            IO<{\x -> (true)}, {\w v -> (pointsTo x w v)}> a ->
+            IO<{\x -> (true)}, {\w v -> (rgpointsTo (Wrap x) w v)}> a
+            @-}
+--blah :: IORef a -> IO a -> IO a
+--blah r io = io
+
+-- It would be nice if I could tie this to readIORefS, but there's no place to use liquidAssume to
+-- invoke the axiom_rgpointsto
+{-@ assume readRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+                    x:RGRef<p, r> a -> IO<{\x -> (true)}, {\w v -> (rgpointsTo x w v)}> (a<p>) @-}
 readRGRef (Wrap x) = readIORef x
 
--- TODO: full spec, fix pf type
-writeRGRef :: RGRef a -> a -> (a -> a -> Bool) -> IO ()
-writeRGRef  (Wrap x) e pf = writeIORef x e
+-- Again, would be nice to tie to pointsTo
+{-@ assume writeRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop>. 
+                          x:(RGRef<p,r> a) -> 
+                          old:a -> 
+                          new:a<r old> -> 
+                          (IO<{\w -> (rgpointsTo x w old)}, {\w v -> (rgpointsTo x w new)}> ()) @-}
+writeRGRef :: RGRef a -> a -> a -> IO ()
+writeRGRef  (Wrap x) old new = writeIORef x new
 
 {- assume Data.IORef.modifyIORef :: forall <p :: a -> Prop>. IORef a<p> -> (a<p> -> a<p>) -> IO () @-}
 
@@ -178,6 +196,13 @@ alloc_counter _ = newRGRef 1 3 stable_monocount
 inc_counter :: RGRef Int -> IO ()
 inc_counter r = modifyRGRef r (\x -> x + 1) stable_monocount
 
+-- Now give the bindIO and IO refinements a workout
+{-@ inc_counter2 :: r:RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int -> exists[x:Int].(IO<{\w -> (true)},{\w v -> (rgpointsTo r w x)}> ()) @-}
+inc_counter2 :: RGRef Int -> IO ()
+inc_counter2 r = do {
+                       readRGRef r `bindIO` \v ->
+                       writeRGRef r v (v+1)
+                    }
 
 main = do {
           r <- newRGRef 1 3 stable_monocount; -- SHOULD BE ref{Int|>0}[<=,<=] (and is)
