@@ -72,7 +72,7 @@ measure rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
                         ref:RGRef<p,r> a ->
                         w:RealWorld ->
                         c:a ->
-			{v:Bool | ((Prop v) <=> (pointsTo (rgref_ref ref) w c))} 
+			{v:Bool | ((Prop v) <=> ((rgpointsTo ref w c) <=> (pointsTo (rgref_ref ref) w c)))} 
 @-}
 axiom_rgpointsTo :: RGRef a -> RealWorld -> a -> Bool
 axiom_rgpointsTo = undefined
@@ -216,10 +216,20 @@ inc_counter r = modifyRGRef r (\x -> x + 1) stable_monocount
 -- Now give the bindIO and IO refinements a workout
 {-@ inc_counter2 :: r:RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int -> exists[x:Int].(IO<{\w -> (true)},{\w v -> (rgpointsTo r w x)}> ()) @-}
 inc_counter2 :: RGRef Int -> IO ()
-inc_counter2 r = do {
-                       readRGRef r `bindIO` \v ->
-                       writeRGRef r v (v+1)
-                    }
+inc_counter2 r = readRGRef r 
+                 `bindIO` 
+                 storeOneMore r
+                 {-\v -> writeRGRef r v (v+1)-}
+-- Hoisting inc out since anonymous version doesn't get the correct return inferred 
+-- (IO refinement params are inferred as True / nothing)
+{-@ storeOneMore :: r:RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int ->
+                    v:Int ->
+                    (IO<{\w -> (rgpointsTo r w v)}, {\w q -> (rgpointsTo r w v)}> ()) @-}
+                    -- Changing second refinement to rgpointsTo r w (v+1) as it should be gives a
+                    -- parse error
+storeOneMore :: RGRef Int -> Int -> IO ()
+storeOneMore r v = writeRGRef r v (v+1)
+
 
 main = do {
           r <- newRGRef 1 3 stable_monocount; -- SHOULD BE ref{Int|>0}[<=,<=] (and is)
@@ -230,17 +240,3 @@ main = do {
           return ()
        }
 
-
--- The LH folks fixed this
----- What are the subtyping rules for data structure params that aren't
----- used within the structure?
---{- unused_contra :: RGRef <{\x -> x > 0}, {\x y -> x <= y}> Int -> RGRef <{\x -> x > 0}, {\x y -> false}> Int @-}
---unused_contra :: RGRef Int -> RGRef Int
---unused_contra r = r
---
---
---{- unused_covar :: RGRef <{\x -> x > 0}, {\x y -> false}> Int -> RGRef <{\x -> x > 0}, {\x y -> x <= y}> Int @-}
---unused_covar :: RGRef Int -> RGRef Int
---unused_covar r = r
----- It looks like there's simply no constraint!
---
