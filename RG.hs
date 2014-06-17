@@ -1,5 +1,6 @@
 module RG where
 
+import Language.Haskell.Liquid.Prelude
 import Data.IORef as R
 import GHC.Base
 
@@ -77,14 +78,14 @@ axiom_rgpointsTo :: RGRef a -> RealWorld -> a -> Bool
 axiom_rgpointsTo = undefined
 
 {-@ test_axiom :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-    rr:RGRef<p,r> a ->
-    ir:{i:IORef a | (rr = Wrap i)} -> -- For some reason, this refinement fails to parse...
+    ir:IORef a -> 
+    rr:{r:RGRef<p,r> a | ((rgref_ref r) = ir)} ->
     v:a ->
     w:{rw:RealWorld | (pointsTo ir rw v)} ->
     {w2:RealWorld | (rgpointsTo (Wrap ir) w2 v)}
 @-}
-test_axiom :: RGRef a -> IORef a -> a -> RealWorld -> RealWorld
-test_axiom rr ir v w = w
+test_axiom :: IORef a -> RGRef a -> a -> RealWorld -> RealWorld
+test_axiom ir rr v w = liquidAssume (axiom_rgpointsTo rr w v) w
 
 {- assume embed_pair_impl :: forall <p :: a -> b -> Prop, q :: c -> b -> Prop>.
                               (a,b)<p> ->
