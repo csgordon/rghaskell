@@ -76,6 +76,22 @@ measure rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
 axiom_rgpointsTo :: RGRef a -> RealWorld -> a -> Bool
 axiom_rgpointsTo = undefined
 
+{-@ test_axiom :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
+    rr:RGRef<p,r> a ->
+    ir:{i:IORef a | (rr = Wrap i)} -> -- For some reason, this refinement fails to parse...
+    v:a ->
+    w:{rw:RealWorld | (pointsTo ir rw v)} ->
+    {w2:RealWorld | (rgpointsTo (Wrap ir) w2 v)}
+@-}
+test_axiom :: RGRef a -> IORef a -> a -> RealWorld -> RealWorld
+test_axiom rr ir v w = w
+
+{- assume embed_pair_impl :: forall <p :: a -> b -> Prop, q :: c -> b -> Prop>.
+                              (a,b)<p> ->
+			      impl:(asP:(a,b)<p> -> {asQ:(a,c)<q> | (fst asQ = fst asP)}) ->
+			      (a,c)<q>
+-}
+
 {-@ assume readIORefS :: x:{v: IORef a | true } -> IO<{\x -> (true)}, {\w v -> (pointsTo x w v)}> a @-}
 readIORefS :: IORef a -> IO a
 readIORefS = readIORef
