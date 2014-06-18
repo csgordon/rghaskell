@@ -33,6 +33,10 @@ storeOneMore r v = writeRGRef r v (v+1)
 --                 storeOneMore r
 --                 {-\v -> writeRGRef r v (v+1)-}
 
+{-@ proves_nothing :: x:a -> y:a -> {v:a | (v = y)} @-}
+proves_nothing :: a -> a -> a
+proves_nothing x y = y --proves_nothing x y
+
 main = do {
           r <- newRGRef 1 3 stable_monocount; -- SHOULD BE ref{Int|>0}[<=,<=] (and is)
           r2 <- newRGRef 2 9 proves_nothing;  -- SHOULD BE ref{Int|>0}[havoc,havoc].

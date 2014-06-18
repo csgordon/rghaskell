@@ -76,16 +76,6 @@ measure rgpointsTo :: RGRef a -> RealWorld -> a -> Prop
 axiom_rgpointsTo :: IORef a -> RealWorld -> a -> Bool
 axiom_rgpointsTo = undefined
 
-{-@ test_axiom :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-    ir:IORef a -> 
-    rr:{r:RGRef<p,r> a | ((rgref_ref r) = ir)} ->
-    v:a ->
-    w:{rw:RealWorld | (pointsTo ir rw v)} ->
-    {w2:RealWorld | (rgpointsTo (Wrap ir) w2 v)}
-@-}
-test_axiom :: IORef a -> RGRef a -> a -> RealWorld -> RealWorld
-test_axiom ir (Wrap rr) v w = liquidAssume (axiom_rgpointsTo rr w v) w
-
 {- assume embed_pair_impl :: forall <p :: a -> b -> Prop, q :: c -> b -> Prop>.
                               (a,b)<p> ->
 			      impl:(asP:(a,b)<p> -> {asQ:(a,c)<q> | (fst asQ = fst asP)}) ->
@@ -111,27 +101,6 @@ writeIORef2 r old new = writeIORef r new
     This encodes the requirement that knowing P x and R x y is sufficient to deduce P y.
 -}
 
-
-
--- Testing / debugging function
-{-@ generic_accept_stable :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
-                    f:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
-                    ()
-                    @-}
-generic_accept_stable :: (a -> a -> a) -> ()
-generic_accept_stable pf = ()
-
-{-@ proves_reflexivity :: x:{v:Int | v > 0} -> y:{v:Int | v > 0} -> {v:Int | v > 0} @-}
-proves_reflexivity :: Int -> Int -> Int
-proves_reflexivity x y = x
-
-test :: ()
-test = generic_accept_stable proves_reflexivity
-
-{-@ proves_nothing :: x:a -> y:a -> {v:a | (v = y)} @-}
-proves_nothing :: a -> a -> a
-proves_nothing x y = y --proves_nothing x y
-
 {- TODO: e2 is a hack to sidestep the inference of false for r,
    it forces r to be inhabited. -}
 {-@ newRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
@@ -144,14 +113,6 @@ newRGRef e e2 stabilityPf = do {
                             r <- newIORef e;
                             return (Wrap r)
                          }
-
-{- blah :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
-            x:IORef a ->
-            IO<{\x -> (true)}, {\w v -> (pointsTo x w v)}> a ->
-            IO<{\x -> (true)}, {\w v -> (rgpointsTo (Wrap x) w v)}> a
-            @-}
---blah :: IORef a -> IO a -> IO a
---blah r io = io
 
 -- It would be nice if I could tie this to readIORefS, but there's no place to use liquidAssume to
 -- invoke the axiom_rgpointsto
@@ -169,16 +130,6 @@ writeRGRef :: RGRef a -> a -> a -> IO ()
 writeRGRef  (Wrap x) old new = writeIORef x new
 
 {- assume Data.IORef.modifyIORef :: forall <p :: a -> Prop>. IORef a<p> -> (a<p> -> a<p>) -> IO () @-}
-
--- An anonymous fn inside modifyRGref doesn't work after updating
--- (modifyIORef's type loses the refinements)
-{-@ coerce :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
-              f:(x:a<p> -> a<r x>) ->
-              pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
-	      a<p> ->
-	      a<p> @-}
-coerce :: (a -> a) -> (a -> a -> a) -> a -> a
-coerce f pf v = pf v (f v)
 
 {-@ modifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
                     rf:(RGRef<p, r> a) ->
