@@ -51,18 +51,18 @@ data RGRef a = Wrap (R.IORef a)
 -- !!!!!! Apparently this include directive is silently doing nothing
 {-@ include <GHC/Base/IO.spec> @-}
 {-@ measure pointsTo :: IORef a -> RealWorld -> a -> Prop @-}
-{-@ data IO a <p :: RealWorld -> Prop , q :: RealWorld -> a -> Prop >
+{-@ data GHC.Base.IO a <p :: RealWorld -> Prop , q :: RealWorld -> a -> Prop >
      =  @-}
  -- was IO (io_act :: (RealWorld<p> -> ( RealWorld , a )<q>))
  -- Should be (# RealWorld, a #)
-{-@ data IORef a <p :: a -> Prop, r :: a -> a -> Prop > = @-}
+{- data Data.IORef.IORef a <p :: a -> Prop, r :: a -> a -> Prop > = -}
 
 -- below, true should be {\w -> (q w x)} but this is a sort error, since explicit app of abstract
 -- refinement isn't supported
-{-@
+{-
 assume bindIO :: forall <p :: RealWorld -> Prop, q :: RealWorld -> a -> Prop, r :: a -> RealWorld -> b -> Prop>.
                           IO<p,q> a -> (x:a -> IO<{\w -> (true)},r x> b) -> (exists[x:a].(IO<p,r x> b))
-@-}
+-}
 {-@ 
 measure rgpointsTo :: RGRef a -> RealWorld -> a -> Prop
 @-}
@@ -111,10 +111,7 @@ writeIORef2 r old new = writeIORef r new
     This encodes the requirement that knowing P x and R x y is sufficient to deduce P y.
 -}
 
--- Requires explicit type anno for LH type to refine the inferred Haskell type
-{-@ stable_monocount :: x:{v:Int | v > 0 } -> y:{v:Int | x <= v } -> {v:Int | ((v = y) && (v > 0)) } @-}
-stable_monocount :: Int -> Int -> Int
-stable_monocount x y = y
+
 
 -- Testing / debugging function
 {-@ generic_accept_stable :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
@@ -199,44 +196,4 @@ modifyRGRef (Wrap x) f pf = modifyIORef x (\ v -> pf v (f v))
 -- TODO: strictify, so we don't de-optimize modifyIORef' calls
 modifyRGRef' :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
 modifyRGRef' (Wrap x) f pf = modifyIORef' x (\ v -> pf v (f v))
-
-
-
-
--- Monotonically increasing counter!
-{-@ alloc_counter :: () -> IO (RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int) @-}
-alloc_counter :: () -> IO (RGRef Int)
-alloc_counter _ = newRGRef 1 3 stable_monocount
-
-{-@ inc_counter :: RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int -> IO () @-}
-inc_counter :: RGRef Int -> IO ()
-inc_counter r = modifyRGRef r (\x -> x + 1) stable_monocount
-
--- Now give the bindIO and IO refinements a workout
-{-@ inc_counter2 :: r:RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int -> exists[x:Int].(IO<{\w -> (true)},{\w v -> (rgpointsTo r w x)}> ()) @-}
-inc_counter2 :: RGRef Int -> IO ()
-inc_counter2 r = readRGRef r 
-                 `bindIO` 
-                 storeOneMore r
-                 {-\v -> writeRGRef r v (v+1)-}
--- Hoisting inc out since anonymous version doesn't get the correct return inferred 
--- (IO refinement params are inferred as True / nothing)
-{-@ storeOneMore :: r:RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int ->
-                    v:Int ->
-                    (exists[v2:Int].
-                    (IO<{\w -> (rgpointsTo r w v)}, {\w q -> ((v2 = v + 1) && (rgpointsTo r w v2))}> ())) @-}
-                    -- Changing second refinement to rgpointsTo r w (v+1) as it should be gives a
-                    -- parse error
-storeOneMore :: RGRef Int -> Int -> IO ()
-storeOneMore r v = writeRGRef r v (v+1)
-
-
-main = do {
-          r <- newRGRef 1 3 stable_monocount; -- SHOULD BE ref{Int|>0}[<=,<=] (and is)
-          r2 <- newRGRef 2 9 proves_nothing;  -- SHOULD BE ref{Int|>0}[havoc,havoc].
-          -- Instead we get the same as above....
-          --r3 <- newRGRef 3 10 proves_reflexivity; -- BAD, correctly rejected
-          c <- alloc_counter ();
-          return ()
-       }
 
