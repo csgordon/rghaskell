@@ -24,6 +24,7 @@ import Control.Applicative (Applicative(pure, (<*>)))
 import Control.Exception
 import Data.IORef
 import RG
+import GHC.Base
 
 {-@ predicate Delta x y = 1 > 0 @-}
 -- The reference contains a rollback action to be executed on exceptions
@@ -49,16 +50,26 @@ instance Monad STM where
                                 x <- m r
                                 unSTM (k x) r
 
+{-@ assume forgetIOTriple :: forall <p :: RealWorld -> Prop, r :: RealWorld -> a -> Prop>.
+                             IO<p,r> a -> IO a @-}
+forgetIOTriple :: IO a -> IO a
+forgetIOTriple a = a
+
+{-@ atomically :: STM a -> IO a @-}
 atomically :: STM a -> IO a
 atomically (STM m) = do
                         r <- newRGRef (return ()) (return ()) (\ x y -> y) -- actually, rely is not reflexive
                         m r `onException` do
-                                            rollback <- readRGRef r
-                                            rollback
+                                            --rollback <- readRGRef r
+                                            (forgetIOTriple (readRGRef r)) `bindIO` (\rollback -> rollback)
 
+-- If we leave this alone, it will infer throwSTM :: forall a b. Exception a => {x:a | false} -> STM b
+-- So we have to repeat the Haskell type explicitly for LH so it will infer inhabitable refinements
+{-@ throwSTM :: Exception e => e -> STM a @-}
 throwSTM :: Exception e => e -> STM a
 throwSTM = STM . const . throwIO
 
+{-@ catchSTM :: Exception e => STM a -> (e -> STM a) -> STM a @-}
 catchSTM :: Exception e => STM a -> (e -> STM a) -> STM a
 catchSTM (STM m) h = STM $ \ r -> do
     --old_rollback <- readIORef r
@@ -82,20 +93,25 @@ catchSTM (STM m) h = STM $ \ r -> do
 newtype TVar a = TVar (IORef a)
     deriving (Eq)
 
+{-@ newTVar :: a -> STM (TVar a) @-}
 newTVar :: a -> STM (TVar a)
 newTVar a = STM (const (newTVarIO a))
 
+{-@ newTVarIO :: a -> IO (TVar a) @-}
 newTVarIO :: a -> IO (TVar a)
 newTVarIO a = do
     ref <- newIORef a
     return (TVar ref)
 
+{-@ readTVar :: TVar a -> STM a @-}
 readTVar :: TVar a -> STM a
 readTVar (TVar ref) = STM (const (readIORef ref))
 
+{-@ readTVarIO :: TVar a -> IO a @-}
 readTVarIO :: TVar a -> IO a
 readTVarIO (TVar ref) = readIORef ref
 
+{-@ writeTVar :: TVar a -> a -> STM () @-}
 writeTVar :: TVar a -> a -> STM ()
 writeTVar (TVar ref) a = STM $ \ r -> do
     oldval <- readIORef ref
