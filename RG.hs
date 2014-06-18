@@ -223,7 +223,8 @@ inc_counter2 r = readRGRef r
 -- (IO refinement params are inferred as True / nothing)
 {-@ storeOneMore :: r:RGRef<{\x -> x > 0}, {\x y -> x <= y}> Int ->
                     v:Int ->
-                    (IO<{\w -> (rgpointsTo r w v)}, {\w q -> (rgpointsTo r w v)}> ()) @-}
+                    (exists[v2:Int].
+                    (IO<{\w -> (rgpointsTo r w v)}, {\w q -> ((v2 = v + 1) && (rgpointsTo r w v2))}> ())) @-}
                     -- Changing second refinement to rgpointsTo r w (v+1) as it should be gives a
                     -- parse error
 storeOneMore :: RGRef Int -> Int -> IO ()
