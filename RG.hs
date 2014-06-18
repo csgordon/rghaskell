@@ -64,17 +64,16 @@ assume bindIO :: forall <p :: RealWorld -> Prop, q :: RealWorld -> a -> Prop, r 
                           IO<p,q> a -> (x:a -> IO<{\w -> (true)},r x> b) -> (exists[x:a].(IO<p,r x> b))
 @-}
 {-@ 
-measure rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-                          RGRef<p,r> a -> RealWorld -> a -> Prop
+measure rgpointsTo :: RGRef a -> RealWorld -> a -> Prop
 @-}
 -- Encode rgpointsTo (Wrap r) (w) (v) = (pointsTo r w v)
 {-@ axiom_rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-                        ref:RGRef<p,r> a ->
+                        ref:IORef a ->
                         w:RealWorld ->
                         c:a ->
-			{v:Bool | ((Prop v) <=> ((rgpointsTo ref w c) <=> (pointsTo (rgref_ref ref) w c)))} 
+			{v:Bool | ((pointsTo ref w c) <=> (rgpointsTo (Wrap ref) w c))} 
 @-}
-axiom_rgpointsTo :: RGRef a -> RealWorld -> a -> Bool
+axiom_rgpointsTo :: IORef a -> RealWorld -> a -> Bool
 axiom_rgpointsTo = undefined
 
 {-@ test_axiom :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
@@ -85,7 +84,7 @@ axiom_rgpointsTo = undefined
     {w2:RealWorld | (rgpointsTo (Wrap ir) w2 v)}
 @-}
 test_axiom :: IORef a -> RGRef a -> a -> RealWorld -> RealWorld
-test_axiom ir rr v w = liquidAssume (axiom_rgpointsTo rr w v) w
+test_axiom ir (Wrap rr) v w = liquidAssume (axiom_rgpointsTo rr w v) w
 
 {- assume embed_pair_impl :: forall <p :: a -> b -> Prop, q :: c -> b -> Prop>.
                               (a,b)<p> ->
