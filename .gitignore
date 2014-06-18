@@ -17,3 +17,6 @@ cabal.config
 *.html
 *.out
 *.smt2
+.liquid
+liquid-fixpoint
+liquidhaskell
