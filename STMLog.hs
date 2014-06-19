@@ -26,12 +26,36 @@ import Data.IORef
 import RG
 import GHC.Base
 
+-- LH can't parse >> for sequencing, and we need to export some axioms anyways
+-- Can't mention seqIOUnit in axioms, so I'm baking the left unit property into its type
+{- assume seqIOUnit :: a:IO () -> b:IO () -> {m:IO () | ((a = (return ())) => m = b)} @-}
+seqIOUnit :: IO () -> IO () -> IO ()
+seqIOUnit a b = a >>= (\_ -> b)
+{-@ assume axiom_left_unit_bind :: ret:(IO ()) ->
+                            seq:(IO () -> IO () -> IO ()) ->
+                            m:IO () -> {v : Bool | ((seq ret m) = m)} @-}
+axiom_left_unit_bind :: (IO ()) -> (IO () -> IO () -> IO ()) -> IO () -> Bool
+axiom_left_unit_bind ret bind m = undefined
 {-@ predicate Delta x y = 1 > 0 @-}
+{- TODO: I think exists isn't allowed /inside/ a predicate.  So I need a measure
+ -     fwd_extends :: IO () -> IO () -> Prop
+ - with axioms
+ -     assume fwd_extends_refl :: m:IO () -> {v:Bool | (fwd_extends m m)}
+ -     assume fwd_extends_trans :: a:IO () -> 
+ -                                 b:{x:IO () | (fwd_extends a b)} ->
+ -                                 c:{x:IO () | (fwd_extends b c)} ->
+ -                                 {v:Bool | (fwd_extends a c)}
+ - and typing seqIOUnit as
+ -     assume seqIOUnit :: IO () -> m:IO () -> {a:IO () | (fwd_extends a m)}
+ -     (or equivalent axiom)
+ -}
 -- The reference contains a rollback action to be executed on exceptions
-{- data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> ((x = y) || (exists[f:IO ()].(y = f >> x)))}> (IO ()) -> IO a)) -}
+{- data STM a = STM (stm_log_ref :: 
+   (RGRef<{\x -> (true)},{\x y -> (exists[f:(IO ())].(y = (seqIOUnit f x)))}> (IO ()) -> IO a)) -}
 {-@ data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (1 > 0)}> (IO ()) -> IO a)) @-}
 data STM a = STM (RGRef (IO ()) -> IO a)
 -- STM should be a newtype, but I can't figure out how to make LH refine newtypes
+
 
 {-@ unSTM :: STM a -> RGRef<{\ x -> 1 > 0},{\ x y -> 1 > 0}> (IO ()) -> IO a @-}
 unSTM :: STM a -> RGRef (IO ()) -> IO a
@@ -55,13 +79,21 @@ instance Monad STM where
 forgetIOTriple :: IO a -> IO a
 forgetIOTriple a = a
 
+-- Somehow, adding this test function "fixes" (?) an error with readRGref in atomically...
+{-@ test_read :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
+                 rr:RGRef<p,r> a -> IO<True,{\w v -> (rgpointsTo rr w v)}> (a<p>) @-}
+test_read :: RGRef a -> IO a
+test_read rr = readRGRef rr
+
 {-@ atomically :: STM a -> IO a @-}
 atomically :: STM a -> IO a
 atomically (STM m) = do
                         r <- newRGRef (return ()) (return ()) (\ x y -> y) -- actually, rely is not reflexive
                         m r `onException` do
                                             --rollback <- readRGRef r
-                                            (forgetIOTriple (readRGRef r)) `bindIO` (\rollback -> rollback)
+                                            --(forgetIOTriple (readRGRef r)) `bindIO` (\rollback -> rollback)
+                                            rollback <- forgetIOTriple (readRGRef r)
+                                            rollback
 
 -- If we leave this alone, it will infer throwSTM :: forall a b. Exception a => {x:a | false} -> STM b
 -- So we have to repeat the Haskell type explicitly for LH so it will infer inhabitable refinements
@@ -78,7 +110,7 @@ catchSTM (STM m) h = STM $ \ r -> do
     r2 <- newRGRef (return ()) (return ()) (\ x y -> y) -- actually, rely is not reflexive
     --res <- try (m r)
     res <- try (m r2)
-    rollback_m <- readRGRef r2
+    rollback_m <- forgetIOTriple (readRGRef r2)
     --rollback_m <- readIORef r
     case res of
         Left ex -> do

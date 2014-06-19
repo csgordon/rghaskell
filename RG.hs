@@ -116,8 +116,8 @@ newRGRef e e2 stabilityPf = do {
 
 -- It would be nice if I could tie this to readIORefS, but there's no place to use liquidAssume to
 -- invoke the axiom_rgpointsto
-{-@ assume readRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
-                    x:RGRef<p, r> a -> IO<{\x -> (true)}, {\w v -> (rgpointsTo x w v)}> (a<p>) @-}
+{-@ assume readRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, pre :: RealWorld -> Prop>.
+                    x:RGRef<p, r> a -> IO<pre, {\w v -> (rgpointsTo x w v)}> (a<p>) @-}
 readRGRef (Wrap x) = readIORef x
 
 -- Again, would be nice to tie to pointsTo
