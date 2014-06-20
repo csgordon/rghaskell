@@ -28,14 +28,6 @@ import GHC.Base
 
 -- LH can't parse >> for sequencing, and we need to export some axioms anyways
 -- Can't mention seqIOUnit in axioms, so I'm baking the left unit property into its type
-{- assume seqIOUnit :: a:IO () -> b:IO () -> {m:IO () | ((a = (return ())) => m = b)} @-}
-seqIOUnit :: IO () -> IO () -> IO ()
-seqIOUnit a b = a >>= (\_ -> b)
-{-@ assume axiom_left_unit_bind :: ret:(IO ()) ->
-                            seq:(IO () -> IO () -> IO ()) ->
-                            m:IO () -> {v : Bool | ((seq ret m) = m)} @-}
-axiom_left_unit_bind :: (IO ()) -> (IO () -> IO () -> IO ()) -> IO () -> Bool
-axiom_left_unit_bind ret bind m = undefined
 {-@ predicate Delta x y = 1 > 0 @-}
 {- TODO: I think exists isn't allowed /inside/ a predicate.  So I need a measure
  -     fwd_extends :: IO () -> IO () -> Prop
@@ -49,6 +41,22 @@ axiom_left_unit_bind ret bind m = undefined
  -     assume seqIOUnit :: IO () -> m:IO () -> {a:IO () | (fwd_extends a m)}
  -     (or equivalent axiom)
  -}
+{-@ measure fwd_extends :: IO () -> IO () -> Prop @-}
+{-@ assume fwd_extends_refl :: m:IO () -> {v:Bool | (fwd_extends m m)} @-}
+fwd_extends_refl :: IO () -> Bool
+fwd_extends_refl = undefined
+{-@ assume fwd_extends_trans :: a:IO () -> 
+                                b:{x:IO () | (fwd_extends a b)} ->
+                                c:{x:IO () | (fwd_extends b c)} ->
+                                {v:Bool | (fwd_extends a c)} @-}
+fwd_extends_trans :: IO () -> IO () -> IO () -> Bool
+fwd_extends_trans x y z = undefined
+
+{-@ assume seqIOUnit :: IO () -> m:IO () -> {a:IO () | (fwd_extends a m)} @-}
+seqIOUnit :: IO () -> IO () -> IO ()
+seqIOUnit a b = a >>= (\_ -> b)
+
+
 -- The reference contains a rollback action to be executed on exceptions
 {- data STM a = STM (stm_log_ref :: 
    (RGRef<{\x -> (true)},{\x y -> (exists[f:(IO ())].(y = (seqIOUnit f x)))}> (IO ()) -> IO a)) -}
