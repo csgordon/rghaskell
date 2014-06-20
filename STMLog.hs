@@ -79,12 +79,6 @@ instance Monad STM where
 forgetIOTriple :: IO a -> IO a
 forgetIOTriple a = a
 
--- Somehow, adding this test function "fixes" (?) an error with readRGref in atomically...
-{-@ test_read :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-                 rr:RGRef<p,r> a -> IO<True,{\w v -> (rgpointsTo rr w v)}> (a<p>) @-}
-test_read :: RGRef a -> IO a
-test_read rr = readRGRef rr
-
 {-@ atomically :: STM a -> IO a @-}
 atomically :: STM a -> IO a
 atomically (STM m) = do

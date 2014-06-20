@@ -51,6 +51,7 @@ data RGRef a = Wrap (R.IORef a)
 -- !!!!!! Apparently this include directive is silently doing nothing
 {-@ include <GHC/Base/IO.spec> @-}
 {-@ measure pointsTo :: IORef a -> RealWorld -> a -> Prop @-}
+{-@ qualif PointsTo(v:a, r:IORef a, w:RealWorld): (pointsTo r w v) @-}
 {-@ data GHC.Base.IO a <p :: RealWorld -> Prop , q :: RealWorld -> a -> Prop >
      =  @-}
  -- was IO (io_act :: (RealWorld<p> -> ( RealWorld , a )<q>))
@@ -63,9 +64,8 @@ data RGRef a = Wrap (R.IORef a)
 assume bindIO :: forall <p :: RealWorld -> Prop, q :: RealWorld -> a -> Prop, r :: a -> RealWorld -> b -> Prop>.
                           IO<p,q> a -> (x:a -> IO<{\w -> (true)},r x> b) -> (exists[x:a].(IO<p,r x> b))
 -}
-{-@ 
-measure rgpointsTo :: RGRef a -> RealWorld -> a -> Prop
-@-}
+{-@ measure rgpointsTo :: RGRef a -> RealWorld -> a -> Prop @-}
+{-@ qualif RGPointsTo(v:a, r:RGRef a, w:RealWorld): (rgpointsTo r w v) @-}
 -- Encode rgpointsTo (Wrap r) (w) (v) = (pointsTo r w v)
 {-@ axiom_rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
                         ref:IORef a ->
