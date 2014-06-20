@@ -25,6 +25,7 @@ import Control.Exception
 import Data.IORef
 import RG
 import GHC.Base
+import Language.Haskell.Liquid.Prelude
 
 -- LH can't parse >> for sequencing, and we need to export some axioms anyways
 -- Can't mention seqIOUnit in axioms, so I'm baking the left unit property into its type
@@ -46,8 +47,8 @@ import GHC.Base
 fwd_extends_refl :: IO () -> Bool
 fwd_extends_refl = undefined
 {-@ assume fwd_extends_trans :: a:IO () -> 
-                                b:{x:IO () | (fwd_extends a b)} ->
-                                c:{x:IO () | (fwd_extends b c)} ->
+                                b:{x:IO () | (fwd_extends a x)} ->
+                                c:{x:IO () | (fwd_extends b x)} ->
                                 {v:Bool | (fwd_extends a c)} @-}
 fwd_extends_trans :: IO () -> IO () -> IO () -> Bool
 fwd_extends_trans x y z = undefined
@@ -56,10 +57,22 @@ fwd_extends_trans x y z = undefined
 seqIOUnit :: IO () -> IO () -> IO ()
 seqIOUnit a b = a >>= (\_ -> b)
 
+{-@ test_extends_refl :: {a:IO () | (fwd_extends a a)} @-}
+test_extends_refl :: IO ()
+test_extends_refl = let a = return () in -- must bind to equate the actions
+                    liquidAssume (fwd_extends_refl a) a
+{-@ test_extends_trans :: a:IO () -> b:IO () -> c:IO () -> {x:IO () | (fwd_extends x c)} @-}
+test_extends_trans :: IO () -> IO () -> IO () -> IO ()
+test_extends_trans a b c = let ab = seqIOUnit a b in -- fwd_extends a b
+                           let abc = seqIOUnit ab c in -- fwd_extends ab c
+                           abc --liquidAssume (fwd_extends_trans abc) abc
+
+
 
 -- The reference contains a rollback action to be executed on exceptions
 {- data STM a = STM (stm_log_ref :: 
    (RGRef<{\x -> (true)},{\x y -> (exists[f:(IO ())].(y = (seqIOUnit f x)))}> (IO ()) -> IO a)) -}
+{- data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a)) @-}
 {-@ data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (1 > 0)}> (IO ()) -> IO a)) @-}
 data STM a = STM (RGRef (IO ()) -> IO a)
 -- STM should be a newtype, but I can't figure out how to make LH refine newtypes
