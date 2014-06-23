@@ -66,7 +66,10 @@ test_extends_trans :: IO () -> IO () -> IO () -> IO ()
 test_extends_trans a b c = let ab = seqIOUnit a b in -- fwd_extends a b
                            let abc = seqIOUnit ab c in -- fwd_extends ab c
                            abc --liquidAssume (fwd_extends_trans abc) abc
-
+-- Test the construction used in the ref update in writeTVar
+{-@ test_partial :: IO () -> b:IO () -> {x:IO () | (fwd_extends x b)} @-}
+test_partial :: IO () -> IO () -> IO ()
+test_partial a = seqIOUnit a
 
 
 -- The reference contains a rollback action to be executed on exceptions
@@ -76,7 +79,6 @@ test_extends_trans a b c = let ab = seqIOUnit a b in -- fwd_extends a b
 {-@ data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (1 > 0)}> (IO ()) -> IO a)) @-}
 data STM a = STM (RGRef (IO ()) -> IO a)
 -- STM should be a newtype, but I can't figure out how to make LH refine newtypes
-
 
 {-@ unSTM :: STM a -> RGRef<{\ x -> 1 > 0},{\ x y -> 1 > 0}> (IO ()) -> IO a @-}
 unSTM :: STM a -> RGRef (IO ()) -> IO a
