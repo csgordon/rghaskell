@@ -118,8 +118,10 @@ stbl x y = y
 
 {-@ freshSTMRef :: () -> IO (RGRef<{\x -> (1 > 0)},{\x y -> (fwd_extends y x)}> (IO ())) @-}
 freshSTMRef :: () -> IO (RGRef (IO ()))
-freshSTMRef _ = newRGRef (return ()) ((return 3 >>= (\_ -> return ())) `seqIOUnit` return ()) (\x y -> y)
---freshSTMRef _ = newRGRef (return ()) ((return 3 >>= (\_ -> return ())) `seqIOUnit` return ()) stbl
+freshSTMRef _ = 
+    -- Remember, return () behaves /generatively/ w.r.t. identity in the refinement language!
+    let x = return () in
+    newRGRef x (return () `seqIOUnit` x) (\x y -> y)
 
 
 {-@ atomically :: STM a -> IO a @-}
