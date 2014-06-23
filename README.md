@@ -1,9 +1,10 @@
 RG-Haskell: Liquid Rely-Guarantee References
 =============================================
 
-This is an embedding of a slightly simplified rely-guarantee reference system.
-(See "Rely-Guarantee References for Refinement Types over Aliased Mutable Data,"
-by Gordon, Ernst, and Grossman, PLDI'13.  I promise to never use such a long paper
+This is an embedding of a slightly simplified *rely-guarantee reference* system into
+[Liquid Haskell](https://github.com/ucsd-progsys/liquidhaskell/).
+(See "[Rely-Guarantee References for Refinement Types over Aliased Mutable Data](http://dl.acm.org/citation.cfm?id=2462160),"
+by [Gordon](http://homes.cs.washington.edu/~csgordon/), [Ernst](http://homes.cs.washington.edu/~mernst/), and [Grossman](http://homes.cs.washington.edu/~djg/), PLDI'13.  I promise to never use such a long paper
 title ever again.)
 
 The key idea in that paper is to augment each reference with a predicate refining
