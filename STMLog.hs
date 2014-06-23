@@ -75,12 +75,12 @@ test_partial a = seqIOUnit a
 -- The reference contains a rollback action to be executed on exceptions
 {- data STM a = STM (stm_log_ref :: 
    (RGRef<{\x -> (true)},{\x y -> (exists[f:(IO ())].(y = (seqIOUnit f x)))}> (IO ()) -> IO a)) -}
-{- data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a)) @-}
-{-@ data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (1 > 0)}> (IO ()) -> IO a)) @-}
+{-@ data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a)) @-}
+{- data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (1 > 0)}> (IO ()) -> IO a)) @-}
 data STM a = STM (RGRef (IO ()) -> IO a)
 -- STM should be a newtype, but I can't figure out how to make LH refine newtypes
 
-{-@ unSTM :: STM a -> RGRef<{\ x -> 1 > 0},{\ x y -> 1 > 0}> (IO ()) -> IO a @-}
+{-@ unSTM :: STM a -> RGRef<{\ x -> 1 > 0},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a @-}
 unSTM :: STM a -> RGRef (IO ()) -> IO a
 unSTM (STM f) = f
 

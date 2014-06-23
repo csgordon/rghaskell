@@ -33,5 +33,5 @@ id        :: x:a -> {v:a | v = x}
 
  
 
---assume bindIO :: forall <p :: RealWorld -> Prop, q :: RealWorld -> a -> Prop, r :: a -> RealWorld -> a -> Prop>.
---                          (IO<p,q> a -> (x:a -> IO<q x,r x>) -> IO<p,{\ w v -> (exists[x:a].(r x w v))}> b)
+--assume bindIO :: forall <p :: GHC.Base.RealWorld -> Prop, q :: GHC.Base.RealWorld -> a -> Prop, r :: a -> GHC.Base.RealWorld -> a -> Prop>.
+--                          (IO<p,q> a -> (x:a -> IO<q x,r x>) -> (exists[x:a]. IO<p,{\ w v -> (r x w v)}> b))
