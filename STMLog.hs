@@ -120,6 +120,8 @@ stbl x y = y
 freshSTMRef :: () -> IO (RGRef (IO ()))
 freshSTMRef _ = 
     -- Remember, return () behaves /generatively/ w.r.t. identity in the refinement language!
+    -- TODO: Note in writeups that this generative behavior is important, and this binding is
+    -- critical to getting relations to be inferred correctly
     let x = return () in
     newRGRef x (return () `seqIOUnit` x) (\x y -> y)
 
