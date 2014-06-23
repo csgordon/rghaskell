@@ -103,18 +103,30 @@ forgetIOTriple :: IO a -> IO a
 forgetIOTriple a = a
 
 {-@ data StabilityPf a <p :: a -> Prop, r :: a -> a -> Prop> =
-	Stable (inner_stability_proof :: (x:a<p> -> y:a<r x> -> {z:a<p> | z = y})) @-}
+	Stable (stability_proof :: (x:a<p> -> y:a<r x> -> {z:a<p> | z = y})) @-}
 data StabilityPf a = Stable (a -> a -> a)
-{-@ fetch_proof :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
+{- fetch_proof :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
                           StabilityPf<p,r> a ->
                           (x:a<p> -> y:a<r x> -> {z:a<p> | z = y}) @-}
-fetch_proof (Stable pf) = pf  -- The inferred type of pf looks like the refinements aren't quite right...
+--fetch_proof (Stable pf) = pf  -- The inferred type of pf looks like the refinements aren't quite right...
+
+{-@ stbl :: x:(IO ()) ->
+            y:{y:(IO ()) | (fwd_extends y x)} ->
+            {z:(IO ()) | z = y} @-}
+stbl :: IO () -> IO () -> IO ()
+stbl x y = y
+
+{-@ freshSTMRef :: () -> IO (RGRef<{\x -> (1 > 0)},{\x y -> (fwd_extends y x)}> (IO ())) @-}
+freshSTMRef :: () -> IO (RGRef (IO ()))
+freshSTMRef _ = newRGRef (return ()) ((return 3 >>= (\_ -> return ())) `seqIOUnit` return ()) (\x y -> y)
+--freshSTMRef _ = newRGRef (return ()) ((return 3 >>= (\_ -> return ())) `seqIOUnit` return ()) stbl
 
 
 {-@ atomically :: STM a -> IO a @-}
 atomically :: STM a -> IO a
 atomically (STM m) = do
-                        r <- newRGRef (return ()) (return ()) (\ x y -> y) -- actually, rely is not reflexive
+                        --r <- newRGRef (return ()) (return ()) stbl -- actually, rely is not reflexive
+                        r <- freshSTMRef ()
                         m r `onException` do
                                             --rollback <- readRGRef r
                                             --(forgetIOTriple (readRGRef r)) `bindIO` (\rollback -> rollback)
@@ -129,24 +141,31 @@ throwSTM = STM . const . throwIO
 
 {-@ catchSTM :: Exception e => STM a -> (e -> STM a) -> STM a @-}
 catchSTM :: Exception e => STM a -> (e -> STM a) -> STM a
-catchSTM (STM m) h = STM $ \ r -> do
-    --old_rollback <- readIORef r
-    --writeIORef r (return ())
-    --r2 <- newIORef (return ())
-    r2 <- newRGRef (return ()) (return ()) (\ x y -> y) -- actually, rely is not reflexive
-    --res <- try (m r)
-    res <- try (m r2)
-    rollback_m <- forgetIOTriple (readRGRef r2)
-    --rollback_m <- readIORef r
-    case res of
-        Left ex -> do
-                        rollback_m
-                        --writeIORef r old_rollback
-                        unSTM (h ex) r
-        Right a -> do
-                        --writeIORef r (rollback_m >> old_rollback)
-                        modifyRGRef r (\ old_rollback -> (rollback_m >> old_rollback)) (\ x y -> y)
-                        return a
+--catchSTM (STM m) h = STM $ \ r -> do
+catchSTM (STM m) h = STM body
+    where
+    {-@ body :: RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a @-}
+    --body :: RGRef (IO ()) -> IO a
+    body r = do
+        --old_rollback <- readIORef r
+        --writeIORef r (return ())
+        --r2 <- newIORef (return ())
+        --r2 <- newRGRef (return ()) (return ()) (\ x y -> y) -- actually, rely is not reflexive
+        r2 <- freshSTMRef ()
+        --res <- try (m r)
+        res <- try (m r2)
+        rollback_m <- forgetIOTriple (readRGRef r2)
+        --rollback_m <- readIORef r
+        case res of
+            Left ex -> do
+                            rollback_m
+                            --writeIORef r old_rollback
+                            unSTM (h ex) r
+            Right a -> do
+                            --writeIORef r (rollback_m >> old_rollback)
+                            --modifyRGRef r (\ old_rollback -> (rollback_m >> old_rollback)) (\ x y -> y)
+                            modifyRGRef r (\ old_rollback -> (rollback_m `seqIOUnit` old_rollback)) (\ x y -> y)
+                            return a
 
 newtype TVar a = TVar (IORef a)
     deriving (Eq)
@@ -171,7 +190,20 @@ readTVarIO (TVar ref) = readIORef ref
 
 {-@ writeTVar :: TVar a -> a -> STM () @-}
 writeTVar :: TVar a -> a -> STM ()
-writeTVar (TVar ref) a = STM $ \ r -> do
-    oldval <- readIORef ref
-    modifyRGRef r (writeIORef ref oldval >>) (\x y -> y)
-    writeIORef ref a
+--writeTVar (TVar ref) a = STM $ \ r -> do
+writeTVar (TVar ref) a = STM body
+    where 
+    {-@ body :: RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO () @-}
+    body :: RGRef (IO ()) -> IO ()
+    body r = do
+        oldval <- readIORef ref
+        --modifyRGRef r (writeIORef ref oldval >>) (\x y -> y)
+        modifyRGRef r (writeIORef ref oldval `seqIOUnit`) (\x y -> y)
+        writeIORef ref a
+        
+
+
+
+
+
+
