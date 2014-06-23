@@ -102,6 +102,15 @@ instance Monad STM where
 forgetIOTriple :: IO a -> IO a
 forgetIOTriple a = a
 
+{-@ data StabilityPf a <p :: a -> Prop, r :: a -> a -> Prop> =
+	Stable (inner_stability_proof :: (x:a<p> -> y:a<r x> -> {z:a<p> | z = y})) @-}
+data StabilityPf a = Stable (a -> a -> a)
+{-@ fetch_proof :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
+                          StabilityPf<p,r> a ->
+                          (x:a<p> -> y:a<r x> -> {z:a<p> | z = y}) @-}
+fetch_proof (Stable pf) = pf  -- The inferred type of pf looks like the refinements aren't quite right...
+
+
 {-@ atomically :: STM a -> IO a @-}
 atomically :: STM a -> IO a
 atomically (STM m) = do
