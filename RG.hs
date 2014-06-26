@@ -114,3 +114,10 @@ modifyRGRef (Wrap x) f pf = modifyIORef x (\ v -> pf v (f v))
 modifyRGRef' :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
 modifyRGRef' (Wrap x) f pf = modifyIORef' x (\ v -> pf v (f v))
 
+{-@ atomicModifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+                    rf:(RGRef<p, r> a) ->
+                    f:(x:a<p> -> a<r x>) ->
+                    pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
+                    IO () @-}
+atomicModifyRGRef :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
+atomicModifyRGRef (Wrap x) f pf = atomicModifyIORef' x (\ v -> (pf v (f v),()))
