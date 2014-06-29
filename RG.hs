@@ -13,6 +13,7 @@ import GHC.Base
 {-@ data RGRef a <p :: a -> Prop, r :: a -> a -> Prop > 
     = Wrap (rgref_ref :: R.IORef a<p>) @-}
 data RGRef a = Wrap (R.IORef a)
+    deriving Eq
 
 -- !!!!!! Apparently this include directive is silently doing nothing
 {-@ include <GHC/Base/IO.spec> @-}
@@ -121,3 +122,16 @@ modifyRGRef' (Wrap x) f pf = modifyIORef' x (\ v -> pf v (f v))
                     IO () @-}
 atomicModifyRGRef :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
 atomicModifyRGRef (Wrap x) f pf = atomicModifyIORef' x (\ v -> (pf v (f v),()))
+
+{- The following is an adaptation of atomCAS from GHC's testsuite/tests/concurrent/prog003/CASList.hs -}
+{-@ rgCAS :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+             Eq a =>
+             RGRef<p,r> a -> old:a<p> -> new:a<r old> ->
+             pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
+             IO Bool
+@-}
+rgCAS :: Eq a => RGRef a -> a -> a -> (a -> a -> a) -> IO Bool
+rgCAS (Wrap ptr) old new pf =
+   atomicModifyIORef' ptr (\ cur -> if cur == old
+                                   then (pf old new, True)
+                                   else (cur, False))
