@@ -101,6 +101,8 @@ myNext (DelNode n) = n
 myNext (Head n) = n
 myNext _ = error "myNext"
 
+{-@ type InteriorPtr a = RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) @-}
+
 -- LH seems fine with incomplete pattern matches here,
 -- which is great.  It means fewer refinements are added
 -- to each constructor, making a lot less work for inference and SMT.
@@ -338,56 +340,59 @@ iterateList itPtrPtr =
   --      go startPtr
 
 
-----printing and counting
---
---printList :: Show a => ListHandle a -> IO ()
---printList (ListHandle {headList = ptrPtr}) =
---  do startptr <- (
---          do ptr <- readIORef ptrPtr
---             Head {next = startptr} <- readIORef ptr
---             return startptr)
---     printListHelp startptr
---
---
---printListHelp :: Show a => IORef (List) -> IO ()
---printListHelp curNodePtr =
---   do { curNode <- readIORef curNodePtr
---      ; case curNode of
---          Null -> putStr "Nil"
---          Node {val = curval, next = curnext} ->
---             do { putStr (show curval  ++ " -> ")
---                ;  printListHelp curnext }
---          DelNode {next = curnext} ->
---             do { putStr ("DEAD -> ")
---                ;  printListHelp curnext }
---      } 
---
+--printing and counting
+
+printList :: Show a => ListHandle a -> IO ()
+printList (ListHandle ptrPtr _) =
+  do startptr <- (
+          do ptr <- readIORef ptrPtr
+             Head startptr <- forgetIOTriple (readRGRef ptr)
+             return startptr)
+     printListHelp startptr
+
+{-@ printListHelp :: Show a => InteriorPtr a -> IO () @-}
+printListHelp :: Show a => RGRef (List a) -> IO ()
+printListHelp curNodePtr =
+   do { curNode <- forgetIOTriple (readRGRef curNodePtr)
+      ; case curNode of
+          Null -> putStr "Nil"
+          Node curval curnext ->
+             do { putStr (show curval  ++ " -> ")
+                ;  printListHelp curnext }
+          DelNode curnext ->
+             do { putStr ("DEAD -> ")
+                ;  printListHelp curnext }
+      } 
+
+-- I've left these commented out; the uses of addition in cntListHelp are failing because some weird
+-- bound gets picked up for the formal parameter...
 --cntList :: Show a => ListHandle a -> IO Int
---cntList (ListHandle {headList = ptrPtr}) =
+--cntList (ListHandle ptrPtr _) =
 --  do startptr <- (
 --          do ptr <- readIORef ptrPtr
---             Head {next = startptr} <- readIORef ptr
+--             Head startptr <- forgetIOTriple (readRGRef ptr)
 --             return startptr)
 --     cntListHelp startptr 0
 --
 --
---cntListHelp :: Show a => IORef (List) -> Int -> IO Int
+--{- cntListHelp :: Show a => InteriorPtr a -> Int -> IO Int @-}
+--cntListHelp :: Show a => RGRef (List a) -> Int -> IO Int
 --cntListHelp curNodePtr i =
---   do { curNode <- readIORef curNodePtr
+--   do { curNode <- forgetIOTriple (readRGRef curNodePtr)
 --      ; case curNode of
 --          Null -> return i
---          Node {val = curval, next = curnext} -> 
+--          Node curval curnext -> 
 --                cntListHelp curnext (i+1)
---          DelNode {next = curnext} ->
+--          DelNode curnext ->
 --                cntListHelp curnext (i+1)
 --      } 
 --
----- Whitespace to the popups in the HTML render are readable
---
---
---
---
---
---
---
---
+-- Whitespace to the popups in the HTML render are readable
+
+
+
+
+
+
+
+
