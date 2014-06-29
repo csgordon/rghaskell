@@ -36,10 +36,10 @@ data ListHandle a = ListHandle { headList :: UNPACK(IORef (IORef (List a))),
                                  -}
 -- Rely/Guarantee for next-pointers:
 -- Permitted operations are:
--- 1. Replacing Null with a Node
--- 2. Replacing a Node with a DelNode, preserving the next ptr
--- 3. Replacing a (Node v x) with (Node v y) if x points to (DelNode y) (see below)
--- 4. Bumping a Head node's next to the second node (this is a deletion, but I think there's an opt
+-- 1. [Append] Replacing Null with a Node
+-- 2. [Logical Deletion] Replacing a Node with a DelNode, preserving the next ptr
+-- 3. [Physical Deletion at Node] Replacing a (Node v x) with (Node v y) if x points to (DelNode y) (see below)
+-- 4. [Physical Deletion at Head] Bumping a Head node's next to the second node (this is a deletion, but I think there's an opt
 -- in the delete code that skips the Node -> DelNode transition)
 -- Deletion occurs not by replacing a DelNode with something else, but by replacing a Node pointing
 -- to a DelNode with a given next pointer with a Node having the same value, and updated (bumped
@@ -58,10 +58,6 @@ data ListHandle a = ListHandle { headList :: UNPACK(IORef (IORef (List a))),
      (X = Y)
      )
 @-}
--- TODO: Break out the head case into a separate relation?  The ListHandle
--- has a pointer that is always a head (and could say so in the refinement)
--- while the recursive pointers must never find a head (could say so in
--- the refinement)
 -- TODO: Figure out how to enforce that the replacement of the deleted node
 -- is actually the correct replacement in 3 and 4.
 -- Brief thought: predicate parameters to List which somehow give more information about
@@ -238,6 +234,8 @@ find (ListHandle head _) x =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
+                          -- TODO: Do I actually need rgListCAS here to get the types right, or did
+                          -- using it just help inference give a better / more local error report?
                           Node prevVal _ -> do b <- rgListCAS prevPtr prevNode (Node prevVal nextNode) 
                                                if b then go prevPtr else go curPtr
                           --Next line typechecks fine, switched to rgListCAS for consistency and to
@@ -255,42 +253,43 @@ find (ListHandle head _) x =
   --in do startPtr <- readIORef head
   --      go startPtr
 
---
---
---
---delete :: Eq a => ListHandle a -> a -> IO Bool
---delete (ListHandle { headList = head }) x =
---  let go prevPtr =
---        do do prevNode <- readIORef prevPtr
---              let curPtr = next prevNode -- head/node/delnode have all next
---              curNode <- readIORef curPtr
---              case curNode of
---                Node {val = y, next = nextNode } ->
---                   if (x == y)
---                   then -- node found and alive 
---                      do b <- atomCAS curPtr curNode (DelNode {next = nextNode})
---                         if b then return True
---                          else go prevPtr -- spin
---                   else go curPtr -- continue
---                Null -> return False -- reached end of list
---                DelNode {next = nextNode } -> 
---                         -- atomically delete curNode by setting the next of prevNode to next of curNode
---                         -- if this fails we simply move ahead
---                        case prevNode of
---                          Node {} -> do b <- atomCAS prevPtr prevNode (Node {val = val prevNode, 
---                                                                             next = nextNode})
---                                        if b then go prevPtr
---                                         else go curPtr
---                          Head {} -> do b <- atomCAS prevPtr prevNode (Head {next = nextNode})
---                                        if b then go prevPtr 
---                                         else go curPtr
---                          DelNode {} -> go curPtr    -- if parent deleted simply move ahead
---
---  in do startPtr <- readIORef head
---        go startPtr
---
---
---
+
+
+
+delete :: Eq a => ListHandle a -> a -> IO Bool
+delete (ListHandle head _) x =
+  do startPtr <- readIORef head
+     go startPtr
+   where
+      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) -> IO Bool @-}
+      go prevPtr =
+        do do prevNode <- forgetIOTriple (readRGRef prevPtr)
+              let curPtr = myNext prevNode -- head/node/delnode have all next
+              curNode <- forgetIOTriple (readRGRef curPtr)
+              case curNode of
+                Node y nextNode ->
+                   if (x == y)
+                   then -- node found and alive 
+                      do b <- rgListCAS curPtr curNode (DelNode nextNode)
+                         if b then return True
+                          else go prevPtr -- spin
+                   else go curPtr -- continue
+                Null -> return False -- reached end of list
+                DelNode nextNode -> 
+                         -- atomically delete curNode by setting the next of prevNode to next of curNode
+                         -- if this fails we simply move ahead
+                        case prevNode of
+                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v nextNode)
+                                         if b then go prevPtr else go curPtr
+                          Head {} -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
+                                        if b then go prevPtr else go curPtr
+                          DelNode {} -> go curPtr    -- if parent deleted simply move ahead
+
+  --in do startPtr <- readIORef head
+  --      go startPtr
+
+
+
 ---- the iterator always points to the PREVIOUS node,
 ---- recall that there's a static dummy new Head
 ---- Assumption: iterators are private, 
