@@ -131,7 +131,8 @@ myNext _ = error "myNext"
 -- tail points to the last node which must be Null
 
 
---type Iterator = IORef (IORef (List))
+{-@ type Iterator a = IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)) @-}
+type Iterator a = IORef (RGRef (List a))
 
 
 -------------------------------------------
@@ -290,49 +291,53 @@ delete (ListHandle head _) x =
 
 
 
----- the iterator always points to the PREVIOUS node,
----- recall that there's a static dummy new Head
----- Assumption: iterators are private, 
----- ie they won't be shared among threads
---newIterator :: ListHandle a -> IO (Iterator a)
---newIterator (ListHandle {headList = hd}) =
---  do hdPtr <- readIORef hd
---     it <- newIORef hdPtr
---     return it
---
----- we iterate through the list and return the first "not deleted" node
----- we delink deleted nodes
----- there's no need to adjust headList, tailList
----- cause headList has a static Head and
----- tailList points to Null
---iterateList :: Eq a => Iterator a -> IO (Maybe (IORef (List)))
---iterateList itPtrPtr = 
---  let go prevPtr =
---        do do prevNode <- readIORef prevPtr
---              let curPtr = next prevNode -- head/node/delnode have all next
---              curNode <- readIORef curPtr
---              case curNode of
---                Node {} -> do writeIORef itPtrPtr curPtr 
---                                 -- adjust iterator
---                              return (Just curPtr)
---                Null -> return Nothing -- reached end of list
---                DelNode {next = nextNode} -> 
---                         -- atomically delete curNode by setting the next of prevNode to next of curNode
---                         -- if this fails we simply move ahead
---                        case prevNode of
---                          Node {} -> do b <- atomCAS prevPtr prevNode (Node {val = val prevNode, 
---                                                                             next = nextNode})
---                                        if b then go prevPtr
---                                         else go curPtr
---                          Head {} -> do b <- atomCAS prevPtr prevNode (Head {next = nextNode})
---                                        if b then go prevPtr 
---                                         else go curPtr
---                          DelNode {} -> go curPtr    -- if parent deleted simply move ahead
---
---  in do startPtr <- readIORef itPtrPtr
---        go startPtr
---
---
+-- the iterator always points to the PREVIOUS node,
+-- recall that there's a static dummy new Head
+-- Assumption: iterators are private, 
+-- ie they won't be shared among threads
+{-@ newIterator :: ListHandle a -> IO (Iterator a) @-} -- <-- This use of Iterator is a LH alias
+newIterator :: ListHandle a -> IO (Iterator a)
+newIterator (ListHandle hd _) =
+  do hdPtr <- readIORef hd
+     it <- (newIORef hdPtr)
+     return it
+
+-- we iterate through the list and return the first "not deleted" node
+-- we delink deleted nodes
+-- there's no need to adjust headList, tailList
+-- cause headList has a static Head and
+-- tailList points to Null
+-- Again, Iterator in the LH type is a LH type alias
+{-@ iterateList :: Eq a => Iterator a -> IO (Maybe (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a))) @-}
+iterateList :: Eq a => Iterator a -> IO (Maybe (RGRef (List a)))
+iterateList itPtrPtr = 
+  do startPtr <- readIORef itPtrPtr
+     go startPtr
+   where
+      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) -> IO (Maybe (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a))) @-}
+      go prevPtr =
+        do do prevNode <- forgetIOTriple (readRGRef prevPtr)
+              let curPtr = myNext prevNode -- head/node/delnode have all next
+              curNode <- forgetIOTriple (readRGRef curPtr)
+              case curNode of
+                Node _ _ -> do writeIORef itPtrPtr curPtr 
+                                 -- adjust iterator
+                               return (Just curPtr)
+                Null -> return Nothing -- reached end of list
+                DelNode nextNode -> 
+                         -- atomically delete curNode by setting the next of prevNode to next of curNode
+                         -- if this fails we simply move ahead
+                        case prevNode of
+                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v nextNode)
+                                         if b then go prevPtr else go curPtr
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
+                                       if b then go prevPtr else go curPtr
+                          DelNode _ -> go curPtr    -- if parent deleted simply move ahead
+
+  --in do startPtr <- readIORef itPtrPtr
+  --      go startPtr
+
+
 ----printing and counting
 --
 --printList :: Show a => ListHandle a -> IO ()
