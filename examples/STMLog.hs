@@ -1,4 +1,10 @@
 -- Originally from Control.Sequential.STM
+-- https://github.com/ghc/packages-stm/blob/master/Control/Sequential/STM.hs
+-- Note that this is *NOT* the actual STM implementation, which is really defined in
+--     https://github.com/ghc/ghc/blob/master/libraries/base/GHC/Conc/Sync.lhs
+-- in terms of some GHC primitives (intrinsics).  This module is the fallback code for when you
+-- compile STM code with another Haskell compiler with no STM runtime support (so it must correctly
+-- implement an undo log)
 --
 --
 -- Transactional memory for sequential implementations.
