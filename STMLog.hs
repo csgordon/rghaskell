@@ -97,11 +97,6 @@ instance Monad STM where
                                 x <- m r
                                 unSTM (k x) r
 
-{-@ assume forgetIOTriple :: forall <p :: RealWorld -> Prop, r :: RealWorld -> a -> Prop>.
-                             IO<p,r> a -> IO a @-}
-forgetIOTriple :: IO a -> IO a
-forgetIOTriple a = a
-
 {-@ data StabilityPf a <p :: a -> Prop, r :: a -> a -> Prop> =
 	Stable (stability_proof :: (x:a<p> -> y:a<r x> -> {z:a<p> | z = y})) @-}
 data StabilityPf a = Stable (a -> a -> a)

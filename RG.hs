@@ -25,6 +25,11 @@ data RGRef a = Wrap (R.IORef a)
  -- Should be (# RealWorld, a #)
 {- data Data.IORef.IORef a <p :: a -> Prop, r :: a -> a -> Prop > = -}
 
+{-@ assume forgetIOTriple :: forall <p :: RealWorld -> Prop, r :: RealWorld -> a -> Prop>.
+                             IO<p,r> a -> IO a @-}
+forgetIOTriple :: IO a -> IO a
+forgetIOTriple a = a
+
 -- below, true should be {\w -> (q w x)} but this is a sort error, since explicit app of abstract
 -- refinement isn't supported
 {-

@@ -79,13 +79,16 @@ data List a = Node a (UNPACK(RGRef (List a)))
             | Null
             | Head (UNPACK(RGRef (List a))) deriving Eq
 
-{-@ data ListHandle a = ListHandle (lh_head :: IORef (RGRef (List a)))
+{-@ data ListHandle a = ListHandle (lh_head :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)))
                                  (lh_tail :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a))) @-}
 data ListHandle a = ListHandle (UNPACK(IORef (RGRef (List a))))
                              (UNPACK(IORef (RGRef (List a))))
 
 {-# INLINE myNext #-}
-{-@ myNext :: List a -> RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) @-}
+{-@ myNext :: l:List a -> 
+              {r:RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) |
+                   ((nxt l) = r) }
+@-}
 myNext :: List a -> RGRef (List a)
 myNext (Node v n) = n
 myNext (DelNode n) = n
@@ -159,6 +162,8 @@ allocNull =
    -- relation if possible when giving the "R-inhabited" witness
    -- Using 'undefined' gets us around the matter of pulling an a out of thin air
    newRGRef memo_null undefined any_stable_listrg
+    -- TODO: apparently 'undefined' gets the refinement false (of course!), which means we're not
+    -- really checking this line
 
 -- we create a new list
 newList :: IO (ListHandle a)
@@ -188,41 +193,55 @@ addToTail (ListHandle _ tailPtrPtr) x =
         -- (by spinning on the tailPtr)
       atomicWrite tailPtrPtr null
 
+-- Wrap rgCAS with the refinements made concrete, to help inference
+{-@ rgListCAS :: Eq a =>
+                 RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) ->
+                 old:(List a) ->
+                 new:{v:(List a) | (ListRG old v)} ->
+                 IO Bool
+@-}
+rgListCAS :: Eq a => RGRef (List a) -> List a -> List a -> IO Bool
+rgListCAS r old new = rgCAS r old new any_stable_listrg
 
---find :: Eq a => ListHandle a -> a -> IO Bool
---find (ListHandle { headList = head }) x =
---  let go !prevPtr =
---           do prevNode <- readIORef prevPtr
---              let curPtr = myNext prevNode -- head/node/delnode have all next
---              curNode <- readIORef curPtr
---              case curNode of
---                Node {val = y, next = nextNode } ->
---                   if (x == y)
---                   then -- node found and alive 
---                      return True
---                   else go curPtr -- continue
---                Null -> return False -- reached end of list
---                DelNode {next = nextNode } -> 
---                         -- atomically delete curNode by setting the next of prevNode to next of curNode
---                         -- if this fails we simply move ahead
---                        case prevNode of
---                          Node {} -> do b <- atomCAS prevPtr prevNode (Node {val = val prevNode, 
---                                                                             next = nextNode})
---                                        if b then go prevPtr
---                                         else go curPtr
---                          Head {} -> do b <- atomCAS prevPtr prevNode (Head {next = nextNode})
---                                        if b then go prevPtr 
---                                         else go curPtr
---                          DelNode {} -> go curPtr    -- if parent deleted simply move ahead
---             {-
---                correct as well, but a deleted parent deleting a child is (for certain cases) a useless operation
---                                     do atomicModifyIORef prevPtr ( \ cur -> (cur{next = nextNode},True))
---                                        go prevPtr
---              -}
---
---  in do startPtr <- readIORef head
---        go startPtr
---
+
+find :: Eq a => ListHandle a -> a -> IO Bool
+find (ListHandle head _) x =
+  do startPtr <- readIORef head
+     go startPtr
+   where
+      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) -> IO Bool @-}
+      go !prevPtr =
+           do prevNode <- forgetIOTriple (readRGRef prevPtr)
+              let curPtr = myNext prevNode -- head/node/delnode have all next
+              curNode <- forgetIOTriple (readRGRef curPtr)
+              case curNode of
+                Node y nextNode ->
+                   if (x == y)
+                   then -- node found and alive 
+                      return True
+                   else go curPtr -- continue
+                Null -> return False -- reached end of list
+                DelNode nextNode -> 
+                         -- atomically delete curNode by setting the next of prevNode to next of curNode
+                         -- if this fails we simply move ahead
+                        case prevNode of
+                          Node prevVal _ -> do b <- rgListCAS prevPtr prevNode (Node prevVal nextNode) 
+                                               if b then go prevPtr else go curPtr
+                          --Next line typechecks fine, switched to rgListCAS for consistency and to
+                          --ensure rgListCAS wasn't breaking some useful inference
+                          --Head _ -> do b <- rgCAS prevPtr prevNode (Head nextNode) any_stable_listrg
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
+                                       if b then go prevPtr else go curPtr
+                          DelNode _ -> go curPtr    -- if parent deleted simply move ahead
+             {-
+                correct as well, but a deleted parent deleting a child is (for certain cases) a useless operation
+                                     do atomicModifyIORef prevPtr ( \ cur -> (cur{next = nextNode},True))
+                                        go prevPtr
+              -}
+
+  --in do startPtr <- readIORef head
+  --      go startPtr
+
 --
 --
 --
