@@ -38,12 +38,22 @@ data ListHandle a = ListHandle { headList :: UNPACK(IORef (IORef (List a))),
 -- Permitted operations are:
 -- 1. Replacing Null with a Node
 -- 2. Replacing a Node with a DelNode, preserving the next ptr
--- 3. Replacing a DelNode with the Node at its next pointer
--- 4. Bumping a Head node's next to the second node
+-- 3. Replacing a (Node v x) with (Node v y) if x points to (DelNode y) (see below)
+-- 4. Bumping a Head node's next to the second node (this is a deletion, but I think there's an opt
+-- in the delete code that skips the Node -> DelNode transition)
+-- Deletion occurs not by replacing a DelNode with something else, but by replacing a Node pointing
+-- to a DelNode with a given next pointer with a Node having the same value, and updated (bumped
+-- forward) next pointer.  So once a reference points to a DelNode, that's permanent, making the
+-- node type and next pointer /stable/.  So with a way to observe the additional stable refinement
+-- that a cell has become deleted, I could actually enforce the correct management of next pointers
+-- on deletion.
+-- RIGHT NOW, we have to permit any value-preserving Node swap for the code to typecheck :-/
+-- Deletion was once ((isDel X) && (isNode Y)), but it turns out a cell holding a delnode is
+-- immutable
 {-@ predicate ListRG X Y =
     (((isNull X) && (isNode Y)) ||
      ((isNode X) && (isDel Y) && ((nxt X) = (nxt Y))) ||
-     ((isDel X) && (isNode Y)) ||
+     ((isNode X) && (isNode Y) && ((val X) = (val Y))) ||
      ((isHead X) && (isHead Y)) ||
      (X = Y)
      )
@@ -108,6 +118,9 @@ myNext _ = error "myNext"
 @-}
 {-@ measure isNode :: List a -> Prop
     isNode (Node v n) = true
+@-}
+{-@ measure val :: List a -> a
+    val (Node v n) = v
 @-}
 {-@ measure isDel :: List a -> Prop
     isDel (DelNode n) = true
