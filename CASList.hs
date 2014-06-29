@@ -1,10 +1,6 @@
 -- CASList, originally From GHC's test suite (testsuite / tests / concurrent / prog003 / CASList.hs)
 -- I rewrote this to use tuples for the node fields instead of records,
 -- since LH seems to not support record matching in measure definitions.
--- I'm also concretizing it to a list of Ints, because at the moment
--- Liquid Haskell can't parse type applications in measure ranges
--- (so IORef (List) causes parse errors when writing the next measure).
--- See Liquid Haskell Issue #222 (https://github.com/ucsd-progsys/liquidhaskell/issues/222)
 
 {-# LANGUAGE BangPatterns,CPP #-}
 module CASList where
@@ -66,33 +62,31 @@ data ListHandle a = ListHandle { headList :: UNPACK(IORef (IORef (List a))),
 --     c) DelNode n ->
 --     d) [contents of 
 
-{-@ any_stable_listrg :: x:List -> y:{v:List | (ListRG x v)} -> {v:List | (v = y)} @-}
-any_stable_listrg :: List -> List -> List
+{-@ any_stable_listrg :: x:List a -> y:{v:List a | (ListRG x v)} -> {v:List a | (v = y)} @-}
+any_stable_listrg :: List a -> List a -> List a
 any_stable_listrg x y = y
 
 {-@
-data List = Node (node_val :: Int)
-                 (node_next :: ((RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List))))
-            | DelNode (del_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List)))
+data List a = Node (node_val :: a)
+                 (node_next :: ((RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a))))
+            | DelNode (del_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)))
             | Null
-            | Head (head_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List)))
+            | Head (head_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)))
 @-}
 -- <{\x -> (1 > 0)},{\x y -> (ListRG x y)}>
-data List = Node Int (UNPACK(RGRef (List)))
-            | DelNode (UNPACK(RGRef (List)))
+data List a = Node a (UNPACK(RGRef (List a)))
+            | DelNode (UNPACK(RGRef (List a)))
             | Null
-            | Head (UNPACK(RGRef (List))) deriving Eq
+            | Head (UNPACK(RGRef (List a))) deriving Eq
 
-{-@ data ListHandle = ListHandle (lh_head :: IORef (RGRef (List)))
-                                 (lh_tail :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List))) @-}
-data ListHandle = ListHandle (UNPACK(IORef (RGRef (List))))
-                             (UNPACK(IORef (RGRef (List))))
--- declare a type alias to work around LH issue #222
-type NextPtr = RGRef List
+{-@ data ListHandle a = ListHandle (lh_head :: IORef (RGRef (List a)))
+                                 (lh_tail :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a))) @-}
+data ListHandle a = ListHandle (UNPACK(IORef (RGRef (List a))))
+                             (UNPACK(IORef (RGRef (List a))))
 
 {-# INLINE myNext #-}
-{-@ myNext :: List -> RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> List @-}
-myNext :: List -> RGRef (List)
+{-@ myNext :: List a -> RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) @-}
+myNext :: List a -> RGRef (List a)
 myNext (Node v n) = n
 myNext (DelNode n) = n
 myNext (Head n) = n
@@ -101,21 +95,21 @@ myNext _ = error "myNext"
 -- LH seems fine with incomplete pattern matches here,
 -- which is great.  It means fewer refinements are added
 -- to each constructor, making a lot less work for inference and SMT.
-{-@ measure nxt :: List -> NextPtr
+{-@ measure nxt :: List a -> (RGRef (List a))
     nxt (Node v n) = n
     nxt (DelNode n) = n
     nxt (Head n) = n
 @-}
-{-@ measure isHead :: List -> Prop
+{-@ measure isHead :: List a -> Prop
     isHead (Head n) = true
 @-}
-{-@ measure isNode :: List -> Prop
+{-@ measure isNode :: List a -> Prop
     isNode (Node v n) = true
 @-}
-{-@ measure isDel :: List -> Prop
+{-@ measure isDel :: List a -> Prop
     isDel (DelNode n) = true
 @-}
-{-@ measure isNull :: List -> Prop
+{-@ measure isNull :: List a -> Prop
     isNull (Null) = true
 @-}
 
@@ -125,7 +119,7 @@ myNext _ = error "myNext"
 -- tail points to the last node which must be Null
 
 
-type Iterator = IORef (IORef (List))
+--type Iterator = IORef (IORef (List))
 
 
 -------------------------------------------
@@ -153,21 +147,21 @@ atomicWrite ptr x =
 ----------------------------------------------
 -- functions operating on lists
 
-{-@ assume dropPred :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-                       x:RGRef<p,r> a ->
-                       {r:RGRef<{\x -> (1 > 0)},r> a | (x = r)} @-}
-dropPred :: RGRef a -> RGRef a
-dropPred x = x
-{-# INLINE dropPred #-}
+{-@ dummyRef :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)) @-}
+dummyRef :: (RGRef (List a))
+dummyRef = undefined
 
-{-@ allocNull :: IO (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> List) @-}
-allocNull :: IO (RGRef List)
+{-@ allocNull :: IO (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)) @-}
+allocNull :: IO (RGRef (List a))
 allocNull = 
    let memo_null = Null in
-   newRGRef memo_null memo_null any_stable_listrg
+   -- IMPORTANT: For a generic version, it's crucial that we provide a non-reflexive instance of the
+   -- relation if possible when giving the "R-inhabited" witness
+   -- Using 'undefined' gets us around the matter of pulling an a out of thin air
+   newRGRef memo_null undefined any_stable_listrg
 
 -- we create a new list
-newList :: IO (ListHandle)
+newList :: IO (ListHandle a)
 newList = 
    --do null <- newRGRef memo_null memo_null any_stable_listrg
    do null <- allocNull
@@ -182,9 +176,10 @@ newList =
 -- we only need to adjust tailList but not headList because
 -- of the static Head
 -- we return the location of the newly added node
-addToTail :: ListHandle -> Int -> IO ()
+addToTail :: Eq a => ListHandle a -> a -> IO ()
 addToTail (ListHandle _ tailPtrPtr) x =
-   do null <- let nm = Null in newRGRef nm nm any_stable_listrg
+   --do null <- let nm = Null in newRGRef nm nm any_stable_listrg
+   do null <- allocNull
       repeatUntil 
          (do tailPtr <- readIORef tailPtrPtr
              b <- rgCAS tailPtr Null (Node x null) any_stable_listrg
