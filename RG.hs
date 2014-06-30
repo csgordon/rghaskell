@@ -25,8 +25,8 @@ data RGRef a = Wrap (R.IORef a)
  -- Should be (# RealWorld, a #)
 {- data Data.IORef.IORef a <p :: a -> Prop, r :: a -> a -> Prop > = -}
 
-{-@ assume forgetIOTriple :: forall <p :: RealWorld -> Prop, r :: RealWorld -> a -> Prop>.
-                             IO<p,r> a -> IO a @-}
+{-@ assume forgetIOTriple :: forall <p :: RealWorld -> Prop, r :: RealWorld -> a -> Prop, q :: a -> Prop>.
+                             IO<p,r> (a<q>) -> IO (a<q>) @-}
 forgetIOTriple :: IO a -> IO a
 forgetIOTriple a = a
 
@@ -85,12 +85,36 @@ newRGRef e e2 stabilityPf = do {
                             r <- newIORef e;
                             return (Wrap r)
                          }
+-- We'll be needing some witness of past values
+{-@ measure pastValue :: RGRef a -> a -> Prop @-}
+{-@ qualif PastValue(r:RGRef a, x:a): (pastValue r x) @-}
+{-@ measure terminalValue :: RGRef a -> a @-}
+{-@ qualif TerminalValue(r:RGRef a): (terminalValue r) @-}
+
+{-@ assume axiom_pastIsTerminal :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
+                             ref:RGRef<p,r> a ->
+                             v:{v:a | (pastValue ref v)} ->
+                             pf:(x:{x:a | x = v} -> y:a<r x> -> {z:a | ((z = y) && (z = x))}) ->
+                             { b : Bool | (((terminalValue ref) = v) <=> (pastValue ref v))}
+                             @-}
+axiom_pastIsTerminal :: RGRef a -> a -> (a -> a -> a) -> Bool
+axiom_pastIsTerminal = undefined
+
+{-@ assume typecheck_pastval :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
+                                x:RGRef<p,r> a ->
+                                v:{v:a | (pastValue x v)} ->
+                                {q:a | (q = v)} @-}
+typecheck_pastval :: RGRef a -> a -> a
+typecheck_pastval x v = v
 
 -- It would be nice if I could tie this to readIORefS, but there's no place to use liquidAssume to
 -- invoke the axiom_rgpointsto
 {-@ assume readRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, pre :: RealWorld -> Prop>.
-                    x:RGRef<p, r> a -> IO<pre, {\w v -> (rgpointsTo x w v)}> (a<p>) @-}
+                    x:RGRef<p, r> a -> IO<pre, {\w v -> (rgpointsTo x w v)}> ({res:a<p> | (pastValue x res)}) @-}
 readRGRef (Wrap x) = readIORef x
+{-@ assume readRGRef2 :: forall <p :: a -> Prop, r :: a -> a -> Prop, pre :: RealWorld -> Prop>.
+                    x:RGRef<p, r> a -> IO ({res:a<p> | (pastValue x res)}) @-}
+readRGRef2 (Wrap x) = readIORef x
 
 -- Again, would be nice to tie to pointsTo
 {-@ assume writeRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop>. 

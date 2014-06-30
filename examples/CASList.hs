@@ -13,6 +13,7 @@ import System.Environment
 import Data.Time
 
 import RG
+import Language.Haskell.Liquid.Prelude
 
 -- #define USE_UNPACK
 -- #define USE_STRICT
@@ -41,20 +42,18 @@ data ListHandle a = ListHandle { headList :: UNPACK(IORef (IORef (List a))),
 -- 3. [Physical Deletion at Node] Replacing a (Node v x) with (Node v y) if x points to (DelNode y) (see below)
 -- 4. [Physical Deletion at Head] Bumping a Head node's next to the second node (this is a deletion, but I think there's an opt
 -- in the delete code that skips the Node -> DelNode transition)
+-- TODO: No, there's no opt.  So physical deletion at head needs same restrictions as at general node.
 -- Deletion occurs not by replacing a DelNode with something else, but by replacing a Node pointing
 -- to a DelNode with a given next pointer with a Node having the same value, and updated (bumped
 -- forward) next pointer.  So once a reference points to a DelNode, that's permanent, making the
 -- node type and next pointer /stable/.  So with a way to observe the additional stable refinement
 -- that a cell has become deleted, I could actually enforce the correct management of next pointers
 -- on deletion.
--- RIGHT NOW, we have to permit any value-preserving Node swap for the code to typecheck :-/
--- Deletion was once ((isDel X) && (isNode Y)), but it turns out a cell holding a delnode is
--- immutable
 {-@ predicate ListRG X Y =
     (((isNull X) && (isNode Y)) ||
      ((isNode X) && (isDel Y) && ((nxt X) = (nxt Y))) ||
-     ((isNode X) && (isNode Y) && ((val X) = (val Y))) ||
-     ((isHead X) && (isHead Y)) ||
+     ((isNode X) && (isNode Y) && ((val X) = (val Y)) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
+     ((isHead X) && (isHead Y) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
      (X = Y)
      )
 @-}
@@ -62,11 +61,18 @@ data ListHandle a = ListHandle { headList :: UNPACK(IORef (IORef (List a))),
 -- is actually the correct replacement in 3 and 4.
 -- Brief thought: predicate parameters to List which somehow give more information about
 -- what's stored at the node's next pointer
+-- BETTER: a witness measure that says some value (i.e., returned from readRGRef)
+-- /was at some time in the past/ pointed to by a given RGRef.  Then I can expose
+-- a primitive that takes a value with that tag, its source ref, and is
+-- polymorphic over some additional predicate on the value (therefore taking a stability proof as
+-- well), returning a new version of the ref with the additional referent refinement and itself
+-- refined to be ptr-eq to the original ref.
 -- Also, note the progression of values a given NextPtr points to:
 --     a) Null ->
 --     b) Node x n ->
---     c) DelNode n ->
---     d) [contents of 
+--     c) Node x n' -> (where n pointed to (DelNode n')); repeat b->c indefinitely
+--     c) DelNode n' ->
+--     d) [disconnected]
 
 {-@ any_stable_listrg :: x:List a -> y:{v:List a | (ListRG x v)} -> {v:List a | (v = y)} @-}
 any_stable_listrg :: List a -> List a -> List a
@@ -215,6 +221,21 @@ addToTail (ListHandle _ tailPtrPtr) x =
 rgListCAS :: Eq a => RGRef (List a) -> List a -> List a -> IO Bool
 rgListCAS r old new = rgCAS r old new any_stable_listrg
 
+-- I exported pastValue via qualif, but simply defining this fixes qualifier inference....
+{-@ readPastValue :: x:InteriorPtr a -> IO ({v:(List a) | (pastValue x v)}) @-}
+readPastValue :: RGRef (List a) -> IO (List a)
+readPastValue x = readRGRef2 x
+
+
+{-@ terminal_listrg :: rf:InteriorPtr a -> v:{v:List a | (pastValue rf v)} ->
+                       x:{x:List a | x = v} -> y:{y:List a | (ListRG x y)} -> {z:List a | ((z = y) && (z = x))} @-}
+terminal_listrg :: RGRef (List a) -> List a -> List a -> List a -> List a
+terminal_listrg rf v x y = y
+{-@ terminal_listrgX :: rf:InteriorPtr a -> v:{v:List a | (pastValue rf v)} ->
+                       x:{x:List a | x = v} -> y:{y:List a | (ListRG x y)} -> {z:List a | ((x = z) && (z = y))} @-}
+terminal_listrgX :: RGRef (List a) -> List a -> List a -> List a -> List a
+terminal_listrgX rf v x y = y
+
 
 find :: Eq a => ListHandle a -> a -> IO Bool
 find (ListHandle head _) x =
@@ -223,9 +244,14 @@ find (ListHandle head _) x =
    where
       {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) -> IO Bool @-}
       go !prevPtr =
-           do prevNode <- forgetIOTriple (readRGRef prevPtr)
+           do prevNode <-  readRGRef2 prevPtr
+              --prevNode2 <- readRGRef2 prevPtr
+              readRGRef2 prevPtr >>= (return . (typecheck_pastval prevPtr))
+              _ <- return (typecheck_pastval prevPtr prevNode)
+              --_ <- return (typecheck_pastval prevPtr prevNode2)
               let curPtr = myNext prevNode -- head/node/delnode have all next
               curNode <- forgetIOTriple (readRGRef curPtr)
+-- ## curNode :: { v : List a | pastValue curPtr v }
               case curNode of
                 Node y nextNode ->
                    if (x == y)
@@ -234,17 +260,27 @@ find (ListHandle head _) x =
                    else go curPtr -- continue
                 Null -> return False -- reached end of list
                 DelNode nextNode -> 
+-- ## Now curNode=(DelNode nextNode), which is stable w.r.t. ListRG.
+-- ## We get this as a refinement on a value s.t. pastValue curPtr curNode, so by SMT congruence,
+-- ## pastValue curPtr (DelNode nextNode)
+-- ## I'd be willing to specialize the field observation of "terminal states" if necessary, since
+-- ## that's at least pretty general.
+-- ## Need measure terminalValue :: RGRef a -> a
+-- ## Need axiom pastIsTerminal :: r:RGRef<p,r> a -> v:a ->
+--                                 pf(x:{x:a | x = v} -> y:a<r x> -> {z:a | z = y && z = x}) ->
+--                                 {b:Bool | (((terminalValue r) = v) <=> (pastValue r v))}
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
                           -- TODO: Do I actually need rgListCAS here to get the types right, or did
                           -- using it just help inference give a better / more local error report?
-                          Node prevVal _ -> do b <- rgListCAS prevPtr prevNode (Node prevVal nextNode) 
+                          Node prevVal _ -> do b <- rgListCAS prevPtr prevNode (Node prevVal (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
                                                if b then go prevPtr else go curPtr
                           --Next line typechecks fine, switched to rgListCAS for consistency and to
                           --ensure rgListCAS wasn't breaking some useful inference
                           --Head _ -> do b <- rgCAS prevPtr prevNode (Head nextNode) any_stable_listrg
-                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
+                          --Head _ -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
                           DelNode _ -> go curPtr    -- if parent deleted simply move ahead
              {-
@@ -282,10 +318,11 @@ delete (ListHandle head _) x =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v nextNode)
+                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
                                          if b then go prevPtr else go curPtr
-                          Head {} -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
-                                        if b then go prevPtr else go curPtr
+                          --Head {} -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
+                                       if b then go prevPtr else go curPtr
                           DelNode {} -> go curPtr    -- if parent deleted simply move ahead
 
   --in do startPtr <- readIORef head
@@ -330,9 +367,10 @@ iterateList itPtrPtr =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v nextNode)
+                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
                                          if b then go prevPtr else go curPtr
-                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
+                          --Head _ -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
                           DelNode _ -> go curPtr    -- if parent deleted simply move ahead
 
@@ -388,7 +426,8 @@ printListHelp curNodePtr =
 --      } 
 --
 -- Whitespace to the popups in the HTML render are readable
-
+-- Dots to allow scrolling far to the
+-- right............................................................................................................................................................................................................................................................................................................................
 
 
 
