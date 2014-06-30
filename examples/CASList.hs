@@ -227,14 +227,26 @@ readPastValue :: RGRef (List a) -> IO (List a)
 readPastValue x = readRGRef2 x
 
 
+-- TODO: The issue with these stability proofs is two-fold.
+-- First, the stability proof phrasing for this use case is too general.  We need to know v is a
+-- DelNode.
+-- Second, the SMT solver can't figure out to prune most disjunctions in ListRG because it doesn't
+-- know that the different node type predicates (isHead, isNode, etc.) are disjoint.
+-- I could fix that via axioms (annoying and verbose) or define a new measure mapping node ctors
+-- to an enum, and redefine the existing measures as predicates on the enum result (less invasive,
+-- cleaner).
 {-@ terminal_listrg :: rf:InteriorPtr a -> v:{v:List a | (pastValue rf v)} ->
                        x:{x:List a | x = v} -> y:{y:List a | (ListRG x y)} -> {z:List a | ((z = y) && (z = x))} @-}
 terminal_listrg :: RGRef (List a) -> List a -> List a -> List a -> List a
 terminal_listrg rf v x y = y
-{-@ terminal_listrgX :: rf:InteriorPtr a -> v:{v:List a | (pastValue rf v)} ->
-                       x:{x:List a | x = v} -> y:{y:List a | (ListRG x y)} -> {z:List a | ((x = z) && (z = y))} @-}
-terminal_listrgX :: RGRef (List a) -> List a -> List a -> List a -> List a
-terminal_listrgX rf v x y = y
+{-@ terminal_listrgX :: rf:InteriorPtr a -> v:{v:List a | (isDel v)} ->
+                       y:{y:List a | (ListRG v y)} -> {z:List a | ((v = z) && (z = y))} @-}
+terminal_listrgX :: RGRef (List a) -> List a -> List a -> List a
+terminal_listrgX rf v y = y
+{-@ terminal_listrgY :: rf:InteriorPtr a -> v:a -> nx:InteriorPtr a ->
+                       x:{x:List a | (x = (DelNode v nx))} ->y:{y:List a | (ListRG x y)} -> {z:List a | ((x = z) && (z = y))} @-}
+terminal_listrgY :: RGRef (List a) -> List a -> List a -> List a
+terminal_listrgY rf v y = y
 
 
 find :: Eq a => ListHandle a -> a -> IO Bool
