@@ -121,6 +121,8 @@ myNext _ = error "myNext"
 {-@ measure isNull :: List a -> Prop
     isNull (Null) = true
 @-}
+-- A cleaner to show the SMT these predicates are disjoint may be to redefine them as predicates on
+-- another measure mapping nodes to some ListTypeEnum...
 {-@ assume isDelOnly :: x:List a -> 
                         {v:Bool | ((isDel x) <=> ((not (isHead x)) && (not (isNull x)) && (not (isNode x))))} @-}
 isDelOnly :: List a -> Bool
@@ -219,15 +221,6 @@ rgListCAS r old new = rgCAS r old new any_stable_listrg
 readPastValue :: RGRef (List a) -> IO (List a)
 readPastValue x = readRGRef2 x
 
-
--- TODO: The issue with these stability proofs is two-fold.
--- First, the stability proof phrasing for this use case is too general.  We need to know v is a
--- DelNode.
--- Second, the SMT solver can't figure out to prune most disjunctions in ListRG because it doesn't
--- know that the different node type predicates (isHead, isNode, etc.) are disjoint.
--- I could fix that via axioms (annoying and verbose) or define a new measure mapping node ctors
--- to an enum, and redefine the existing measures as predicates on the enum result (less invasive,
--- cleaner).
 
 {-@ terminal_listrg :: rf:InteriorPtr a -> v:{v:List a | (isDel v)}->
                        x:{x:List a | (x = v)} ->y:{y:List a | (ListRG x y)} -> {z:List a | ((x = z) && (z = y))} @-}
