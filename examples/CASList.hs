@@ -42,7 +42,6 @@ data ListHandle a = ListHandle { headList :: UNPACK(IORef (IORef (List a))),
 -- 3. [Physical Deletion at Node] Replacing a (Node v x) with (Node v y) if x points to (DelNode y) (see below)
 -- 4. [Physical Deletion at Head] Bumping a Head node's next to the second node (this is a deletion, but I think there's an opt
 -- in the delete code that skips the Node -> DelNode transition)
--- TODO: No, there's no opt.  So physical deletion at head needs same restrictions as at general node.
 -- Deletion occurs not by replacing a DelNode with something else, but by replacing a Node pointing
 -- to a DelNode with a given next pointer with a Node having the same value, and updated (bumped
 -- forward) next pointer.  So once a reference points to a DelNode, that's permanent, making the
@@ -57,16 +56,6 @@ data ListHandle a = ListHandle { headList :: UNPACK(IORef (IORef (List a))),
      (X = Y)
      )
 @-}
--- TODO: Figure out how to enforce that the replacement of the deleted node
--- is actually the correct replacement in 3 and 4.
--- Brief thought: predicate parameters to List which somehow give more information about
--- what's stored at the node's next pointer
--- BETTER: a witness measure that says some value (i.e., returned from readRGRef)
--- /was at some time in the past/ pointed to by a given RGRef.  Then I can expose
--- a primitive that takes a value with that tag, its source ref, and is
--- polymorphic over some additional predicate on the value (therefore taking a stability proof as
--- well), returning a new version of the ref with the additional referent refinement and itself
--- refined to be ptr-eq to the original ref.
 -- Also, note the progression of values a given NextPtr points to:
 --     a) Null ->
 --     b) Node x n ->
@@ -132,6 +121,10 @@ myNext _ = error "myNext"
 {-@ measure isNull :: List a -> Prop
     isNull (Null) = true
 @-}
+{-@ assume isDelOnly :: x:List a -> 
+                        {v:Bool | ((isDel x) <=> ((not (isHead x)) && (not (isNull x)) && (not (isNode x))))} @-}
+isDelOnly :: List a -> Bool
+isDelOnly x = undefined
 
 -- we assume a static head pointer, pointing to the first node which must be Head
 -- the deleted field of Head is always False, it's only there to make some of the code
@@ -235,18 +228,11 @@ readPastValue x = readRGRef2 x
 -- I could fix that via axioms (annoying and verbose) or define a new measure mapping node ctors
 -- to an enum, and redefine the existing measures as predicates on the enum result (less invasive,
 -- cleaner).
-{-@ terminal_listrg :: rf:InteriorPtr a -> v:{v:List a | (pastValue rf v)} ->
-                       x:{x:List a | x = v} -> y:{y:List a | (ListRG x y)} -> {z:List a | ((z = y) && (z = x))} @-}
+
+{-@ terminal_listrg :: rf:InteriorPtr a -> v:{v:List a | (isDel v)}->
+                       x:{x:List a | (x = v)} ->y:{y:List a | (ListRG x y)} -> {z:List a | ((x = z) && (z = y))} @-}
 terminal_listrg :: RGRef (List a) -> List a -> List a -> List a -> List a
-terminal_listrg rf v x y = y
-{-@ terminal_listrgX :: rf:InteriorPtr a -> v:{v:List a | (isDel v)} ->
-                       y:{y:List a | (ListRG v y)} -> {z:List a | ((v = z) && (z = y))} @-}
-terminal_listrgX :: RGRef (List a) -> List a -> List a -> List a
-terminal_listrgX rf v y = y
-{-@ terminal_listrgY :: rf:InteriorPtr a -> v:a -> nx:InteriorPtr a ->
-                       x:{x:List a | (x = (DelNode v nx))} ->y:{y:List a | (ListRG x y)} -> {z:List a | ((x = z) && (z = y))} @-}
-terminal_listrgY :: RGRef (List a) -> List a -> List a -> List a
-terminal_listrgY rf v y = y
+terminal_listrg rf v x y = liquidAssume (isDelOnly x) y
 
 
 find :: Eq a => ListHandle a -> a -> IO Bool
