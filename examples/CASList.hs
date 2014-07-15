@@ -51,8 +51,8 @@ data ListHandle a = ListHandle { headList :: UNPACK(IORef (IORef (List a))),
 {-@ predicate ListRG X Y =
     (((isNull X) && (isNode Y)) ||
      ((isNode X) && (isDel Y) && ((nxt X) = (nxt Y))) ||
-     ((isNode X) && (isNode Y) && ((val X) = (val Y)) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
-     ((isHead X) && (isHead Y) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
+     ((isNode X) && (isNode Y) && (isDel (terminalValue (nxt X))) && ((val X) = (val Y)) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
+     ((isHead X) && (isHead Y) && (isDel (terminalValue (nxt X))) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
      (X = Y)
      )
 @-}
