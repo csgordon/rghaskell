@@ -67,12 +67,16 @@ data ListHandle a = ListHandle { headList :: UNPACK(IORef (IORef (List a))),
 any_stable_listrg :: List a -> List a -> List a
 any_stable_listrg x y = y
 
+{-@ listrg_refl :: x:List a -> y:{v:List a | (ListRG x v)} -> {v:List a | ((ListRG x y) && (y = v))} @-}
+listrg_refl :: List a -> List a -> List a
+listrg_refl x y = y
+
 {-@
 data List a = Node (node_val :: a)
-                 (node_next :: ((RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a))))
-            | DelNode (del_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)))
+                 (node_next :: ((RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a))))
+            | DelNode (del_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a)))
             | Null
-            | Head (head_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)))
+            | Head (head_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a)))
 @-}
 -- <{\x -> (1 > 0)},{\x y -> (ListRG x y)}>
 data List a = Node a (UNPACK(RGRef (List a)))
@@ -80,14 +84,14 @@ data List a = Node a (UNPACK(RGRef (List a)))
             | Null
             | Head (UNPACK(RGRef (List a))) deriving Eq
 
-{-@ data ListHandle a = ListHandle (lh_head :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)))
-                                 (lh_tail :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a))) @-}
+{-@ data ListHandle a = ListHandle (lh_head :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a)))
+                                 (lh_tail :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a))) @-}
 data ListHandle a = ListHandle (UNPACK(IORef (RGRef (List a))))
                              (UNPACK(IORef (RGRef (List a))))
 
 {-# INLINE myNext #-}
 {-@ myNext :: l:List a -> 
-              {r:RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) |
+              {r:RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a) |
                    ((nxt l) = r) }
 @-}
 myNext :: List a -> RGRef (List a)
@@ -96,7 +100,7 @@ myNext (DelNode n) = n
 myNext (Head n) = n
 myNext _ = error "myNext"
 
-{-@ type InteriorPtr a = RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) @-}
+{-@ type InteriorPtr a = RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a) @-}
 
 -- LH seems fine with incomplete pattern matches here,
 -- which is great.  It means fewer refinements are added
@@ -134,7 +138,7 @@ isDelOnly x = undefined
 -- tail points to the last node which must be Null
 
 
-{-@ type Iterator a = IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)) @-}
+{-@ type Iterator a = IORef (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a)) @-}
 type Iterator a = IORef (RGRef (List a))
 
 
@@ -163,18 +167,18 @@ atomicWrite ptr x =
 ----------------------------------------------
 -- functions operating on lists
 
-{-@ dummyRef :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)) @-}
+{-@ dummyRef :: (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a)) @-}
 dummyRef :: (RGRef (List a))
 dummyRef = undefined
 
-{-@ allocNull :: IO (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a)) @-}
+{-@ allocNull :: IO (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a)) @-}
 allocNull :: IO (RGRef (List a))
 allocNull = 
    let memo_null = Null in
    -- IMPORTANT: For a generic version, it's crucial that we provide a non-reflexive instance of the
    -- relation if possible when giving the "R-inhabited" witness
    -- Using 'undefined' gets us around the matter of pulling an a out of thin air
-   newRGRef memo_null undefined any_stable_listrg
+   newRGRef memo_null undefined any_stable_listrg listrg_refl
     -- TODO: apparently 'undefined' gets the refinement false (of course!), which means we're not
     -- really checking this line
 
@@ -184,7 +188,7 @@ newList =
    --do null <- newRGRef memo_null memo_null any_stable_listrg
    do null <- allocNull
       let memo_hd = Head null 
-      hd <- newRGRef memo_hd memo_hd any_stable_listrg
+      hd <- newRGRef memo_hd memo_hd any_stable_listrg listrg_refl
       hdPtr <- newIORef hd
       tailPtr <- newIORef null
       return (ListHandle hdPtr tailPtr)
@@ -208,7 +212,7 @@ addToTail (ListHandle _ tailPtrPtr) x =
 
 -- Wrap rgCAS with the refinements made concrete, to help inference
 {-@ rgListCAS :: Eq a =>
-                 RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) ->
+                 RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a) ->
                  old:(List a) ->
                  new:{v:(List a) | (ListRG old v)} ->
                  IO Bool
@@ -233,7 +237,7 @@ find (ListHandle head _) x =
   do startPtr <- readIORef head
      go startPtr
    where
-      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) -> IO Bool @-}
+      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a) -> IO Bool @-}
       go !prevPtr =
            do prevNode <-  readRGRef2 prevPtr
               --prevNode2 <- readRGRef2 prevPtr
@@ -265,13 +269,13 @@ find (ListHandle head _) x =
                         case prevNode of
                           -- TODO: Do I actually need rgListCAS here to get the types right, or did
                           -- using it just help inference give a better / more local error report?
-                          Node prevVal _ -> do b <- rgListCAS prevPtr prevNode (Node prevVal (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
+                          Node prevVal _ -> do b <- rgListCAS prevPtr prevNode (Node prevVal (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                                if b then go prevPtr else go curPtr
                           --Next line typechecks fine, switched to rgListCAS for consistency and to
                           --ensure rgListCAS wasn't breaking some useful inference
                           --Head _ -> do b <- rgCAS prevPtr prevNode (Head nextNode) any_stable_listrg
                           --Head _ -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
-                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
                           DelNode _ -> go curPtr    -- if parent deleted simply move ahead
              {-
@@ -291,7 +295,7 @@ delete (ListHandle head _) x =
   do startPtr <- readIORef head
      go startPtr
    where
-      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) -> IO Bool @-}
+      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a) -> IO Bool @-}
       go prevPtr =
         do do prevNode <- forgetIOTriple (readRGRef prevPtr)
               let curPtr = myNext prevNode -- head/node/delnode have all next
@@ -309,10 +313,10 @@ delete (ListHandle head _) x =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
+                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                          if b then go prevPtr else go curPtr
                           --Head {} -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
-                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
                           DelNode {} -> go curPtr    -- if parent deleted simply move ahead
 
@@ -338,13 +342,13 @@ newIterator (ListHandle hd _) =
 -- cause headList has a static Head and
 -- tailList points to Null
 -- Again, Iterator in the LH type is a LH type alias
-{-@ iterateList :: Eq a => Iterator a -> IO (Maybe (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a))) @-}
+{-@ iterateList :: Eq a => Iterator a -> IO (Maybe (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a))) @-}
 iterateList :: Eq a => Iterator a -> IO (Maybe (RGRef (List a)))
 iterateList itPtrPtr = 
   do startPtr <- readIORef itPtrPtr
      go startPtr
    where
-      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a) -> IO (Maybe (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)}> (List a))) @-}
+      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a) -> IO (Maybe (RGRef<{\x -> (1 > 0)},{\x y -> (ListRG x y)},{\x y -> (ListRG x y)}> (List a))) @-}
       go prevPtr =
         do do prevNode <- forgetIOTriple (readRGRef prevPtr)
               let curPtr = myNext prevNode -- head/node/delnode have all next
@@ -358,10 +362,10 @@ iterateList itPtrPtr =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
+                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                          if b then go prevPtr else go curPtr
                           --Head _ -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
-                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode)) nextNode))
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
                           DelNode _ -> go curPtr    -- if parent deleted simply move ahead
 

@@ -79,14 +79,11 @@ test_partial a = seqIOUnit a
 
 
 -- The reference contains a rollback action to be executed on exceptions
-{- data STM a = STM (stm_log_ref :: 
-   (RGRef<{\x -> (true)},{\x y -> (exists[f:(IO ())].(y = (seqIOUnit f x)))}> (IO ()) -> IO a)) -}
-{-@ data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a)) @-}
-{- data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (1 > 0)}> (IO ()) -> IO a)) @-}
+{-@ data STM a = STM (stm_log_ref :: (RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a)) @-}
 data STM a = STM (RGRef (IO ()) -> IO a)
 -- STM should be a newtype, but I can't figure out how to make LH refine newtypes
 
-{-@ unSTM :: STM a -> RGRef<{\ x -> 1 > 0},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a @-}
+{-@ unSTM :: STM a -> RGRef<{\ x -> 1 > 0},{\x y -> (fwd_extends y x)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a @-}
 unSTM :: STM a -> RGRef (IO ()) -> IO a
 unSTM (STM f) = f
 
@@ -103,28 +100,20 @@ instance Monad STM where
                                 x <- m r
                                 unSTM (k x) r
 
-{-@ data StabilityPf a <p :: a -> Prop, r :: a -> a -> Prop> =
-	Stable (stability_proof :: (x:a<p> -> y:a<r x> -> {z:a<p> | z = y})) @-}
-data StabilityPf a = Stable (a -> a -> a)
-{- fetch_proof :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-                          StabilityPf<p,r> a ->
-                          (x:a<p> -> y:a<r x> -> {z:a<p> | z = y}) @-}
---fetch_proof (Stable pf) = pf  -- The inferred type of pf looks like the refinements aren't quite right...
-
 {-@ stbl :: x:(IO ()) ->
             y:{y:(IO ()) | (fwd_extends y x)} ->
             {z:(IO ()) | z = y} @-}
 stbl :: IO () -> IO () -> IO ()
 stbl x y = y
 
-{-@ freshSTMRef :: () -> IO (RGRef<{\x -> (1 > 0)},{\x y -> (fwd_extends y x)}> (IO ())) @-}
+{-@ freshSTMRef :: () -> IO (RGRef<{\x -> (1 > 0)},{\x y -> (fwd_extends y x)},{\x y -> (fwd_extends y x)}> (IO ())) @-}
 freshSTMRef :: () -> IO (RGRef (IO ()))
 freshSTMRef _ = 
     -- Remember, return () behaves /generatively/ w.r.t. identity in the refinement language!
     -- TODO: Note in writeups that this generative behavior is important, and this binding is
     -- critical to getting relations to be inferred correctly
     let x = return () in
-    newRGRef x (return () `seqIOUnit` x) (\x y -> y)
+    newRGRef x (return () `seqIOUnit` x) (\x y -> y) undefined -- TODO: (\x y -> y), liquidAssume?
 
 
 {-@ atomically :: STM a -> IO a @-}
@@ -149,7 +138,7 @@ catchSTM :: Exception e => STM a -> (e -> STM a) -> STM a
 --catchSTM (STM m) h = STM $ \ r -> do
 catchSTM (STM m) h = STM body
     where
-    {-@ body :: RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a @-}
+    {-@ body :: RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO a @-}
     --body :: RGRef (IO ()) -> IO a
     body r = do
         --old_rollback <- readIORef r
@@ -198,7 +187,7 @@ writeTVar :: TVar a -> a -> STM ()
 --writeTVar (TVar ref) a = STM $ \ r -> do
 writeTVar (TVar ref) a = STM body
     where 
-    {-@ body :: RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO () @-}
+    {-@ body :: RGRef<{\x -> (true)},{\x y -> (fwd_extends y x)},{\x y -> (fwd_extends y x)}> (IO ()) -> IO () @-}
     body :: RGRef (IO ()) -> IO ()
     body r = do
         oldval <- readIORef ref

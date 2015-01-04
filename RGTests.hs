@@ -20,9 +20,9 @@ test :: ()
 test = generic_accept_stable proves_reflexivity
 
 
-{-@ test_axiom :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
+{-@ test_axiom :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
     ir:IORef a -> 
-    rr:{r:RGRef<p,r> a | ((rgref_ref r) = ir)} ->
+    rr:{r:RGRef<p,r,g> a | ((rgref_ref r) = ir)} ->
     v:a ->
     w:{rw:RealWorld | (pointsTo ir rw v)} ->
     {w2:RealWorld | (rgpointsTo (Wrap ir) w2 v)}

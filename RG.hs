@@ -10,7 +10,7 @@ import GHC.Base
    relation(s).  It is a standard GHC optimization to eliminate the overhead since there is a single
    constructor with one physical argument, so at runtime these will look the same as IORefs:
    we won't pay time or space overhead. (In fact, in GHC, IORefs are a single constructor wrapping an STRef.) -}
-{-@ data RGRef a <p :: a -> Prop, r :: a -> a -> Prop > 
+{-@ data RGRef a <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop > 
     = Wrap (rgref_ref :: R.IORef a<p>) @-}
 data RGRef a = Wrap (R.IORef a)
     deriving Eq
@@ -72,16 +72,28 @@ writeIORef2 r old new = writeIORef r new
     x:a<p> -> y:a<r x> -> {v:a<p> | v = y}
     This encodes the requirement that knowing P x and R x y is sufficient to deduce P y.
 -}
+{- A relational implication can be embedded as a function of type:
+    x:a -> y:a<g x> -> {v:() | r x y }
+-}
+
+{-@ measure getfst :: (a, b) -> a
+    getfst (x, y) = x
+  @-}
+{-@ measure getsnd :: (a, b) -> b
+    getsnd (x, y) = y
+  @-}
 
 {- TODO: e2 is a hack to sidestep the inference of false for r,
    it forces r to be inhabited. -}
-{-@ newRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+-- ((r (getfst v) (getsnd v)) /\ (v = (x,y)))
+{-@ newRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
                     e:a<p> -> 
-                    e2:a<r e> ->
+                    e2:a<g e> ->
                     f:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
-                    IO (RGRef <p, r> a) @-}
-newRGRef :: a -> a -> (a -> a -> a) -> IO (RGRef a)
-newRGRef e e2 stabilityPf = do {
+                    i:(x:a<p> -> y:a<g x> -> {v:a<r x> | (v = y) }) ->
+                    IO (RGRef <p, r, g> a) @-}
+newRGRef :: a -> a -> (a -> a -> a) -> (a -> a -> a) -> IO (RGRef a)
+newRGRef e e2 stabilityPf impPf = do {
                             r <- newIORef e;
                             return (Wrap r)
                          }
@@ -91,17 +103,18 @@ newRGRef e e2 stabilityPf = do {
 {-@ measure terminalValue :: RGRef a -> a @-}
 {-@ qualif TerminalValue(r:RGRef a): (terminalValue r) @-}
 
-{-@ assume axiom_pastIsTerminal :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-                             ref:RGRef<p,r> a ->
+{-@ assume axiom_pastIsTerminal :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
+                             ref:RGRef<p,r,g> a ->
                              v:{v:a | (pastValue ref v)} ->
                              pf:(x:{x:a | x = v} -> y:a<r x> -> {z:a | ((z = y) && (z = x))}) ->
+                             pf2:(x:{x:a | x = v} -> y:a<g x> -> {z:a | ((z = y) && (z = x))}) ->
                              { b : Bool | (((terminalValue ref) = v) <=> (pastValue ref v))}
                              @-}
-axiom_pastIsTerminal :: RGRef a -> a -> (a -> a -> a) -> Bool
+axiom_pastIsTerminal :: RGRef a -> a -> (a -> a -> a) -> (a -> a -> a) -> Bool
 axiom_pastIsTerminal = undefined
 
-{-@ assume typecheck_pastval :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-                                x:RGRef<p,r> a ->
+{-@ assume typecheck_pastval :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
+                                x:RGRef<p,r,g> a ->
                                 v:{v:a | (pastValue x v)} ->
                                 {q:a | (q = v)} @-}
 typecheck_pastval :: RGRef a -> a -> a
@@ -109,16 +122,17 @@ typecheck_pastval x v = v
 
 -- It would be nice if I could tie this to readIORefS, but there's no place to use liquidAssume to
 -- invoke the axiom_rgpointsto
-{-@ assume readRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, pre :: RealWorld -> Prop>.
-                    x:RGRef<p, r> a -> IO<pre, {\w v -> (rgpointsTo x w v)}> ({res:a<p> | (pastValue x res)}) @-}
+{-@ assume readRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop, pre :: RealWorld -> Prop>.
+                    x:RGRef<p, r, g> a -> IO<pre, {\w v -> (rgpointsTo x w v)}> ({res:a<p> | (pastValue x res)}) @-}
 readRGRef (Wrap x) = readIORef x
-{-@ assume readRGRef2 :: forall <p :: a -> Prop, r :: a -> a -> Prop, pre :: RealWorld -> Prop>.
-                    x:RGRef<p, r> a -> IO ({res:a<p> | (pastValue x res)}) @-}
+
+{-@ assume readRGRef2 :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop, pre :: RealWorld -> Prop>.
+                    x:RGRef<p, r, g> a -> IO ({res:a<p> | (pastValue x res)}) @-}
 readRGRef2 (Wrap x) = readIORef x
 
 -- Again, would be nice to tie to pointsTo
-{-@ assume writeRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop>. 
-                          x:(RGRef<p,r> a) -> 
+{-@ assume writeRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>. 
+                          x:(RGRef<p,r,g> a) -> 
                           old:a -> 
                           new:a<r old> -> 
                           (IO<{\w -> (rgpointsTo x w old)}, {\w v -> (rgpointsTo x w new)}> ()) @-}
@@ -127,36 +141,36 @@ writeRGRef  (Wrap x) old new = writeIORef x new
 
 {- assume Data.IORef.modifyIORef :: forall <p :: a -> Prop>. IORef a<p> -> (a<p> -> a<p>) -> IO () @-}
 
-{-@ modifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
-                    rf:(RGRef<p, r> a) ->
-                    f:(x:a<p> -> a<r x>) ->
-                    pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
+{-@ modifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
+                    rf:(RGRef<p, r, g> a) ->
+                    f:(x:a<p> -> a<g x>) ->
+                    pf:(x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}) ->
                     IO () @-}
 modifyRGRef :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
 modifyRGRef (Wrap x) f pf = modifyIORef x (\ v -> pf v (f v))
 
-{-@ modifyRGRef' :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
-                    RGRef<p, r> a ->
-                    f:(x:a<p> -> a<r x>) ->
-                    pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
+{-@ modifyRGRef' :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
+                    RGRef<p, r, g> a ->
+                    f:(x:a<p> -> a<g x>) ->
+                    pf:(x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}) ->
                     IO () @-}
 -- TODO: strictify, so we don't de-optimize modifyIORef' calls
 modifyRGRef' :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
 modifyRGRef' (Wrap x) f pf = modifyIORef' x (\ v -> pf v (f v))
 
-{-@ atomicModifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
-                    rf:(RGRef<p, r> a) ->
-                    f:(x:a<p> -> a<r x>) ->
-                    pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
+{-@ atomicModifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
+                    rf:(RGRef<p, r, g> a) ->
+                    f:(x:a<p> -> a<g x>) ->
+                    pf:(x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}) ->
                     IO () @-}
 atomicModifyRGRef :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
 atomicModifyRGRef (Wrap x) f pf = atomicModifyIORef' x (\ v -> (pf v (f v),()))
 
 {- The following is an adaptation of atomCAS from GHC's testsuite/tests/concurrent/prog003/CASList.hs -}
-{-@ rgCAS :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
+{-@ rgCAS :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
              Eq a =>
-             RGRef<p,r> a -> old:a<p> -> new:a<r old> ->
-             pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
+             RGRef<p,r,g> a -> old:a<p> -> new:a<g old> ->
+             pf:(x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}) ->
              IO Bool
 @-}
 rgCAS :: Eq a => RGRef a -> a -> a -> (a -> a -> a) -> IO Bool
