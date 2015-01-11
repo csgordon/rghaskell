@@ -113,7 +113,7 @@ freshSTMRef _ =
     -- TODO: Note in writeups that this generative behavior is important, and this binding is
     -- critical to getting relations to be inferred correctly
     let x = return () in
-    newRGRef x (return () `seqIOUnit` x) (\x y -> y) undefined -- TODO: (\x y -> y), liquidAssume?
+    newRGRef x (return () `seqIOUnit` x) --(\x y -> y) undefined -- TODO: (\x y -> y), liquidAssume?
 
 
 {-@ atomically :: STM a -> IO a @-}
@@ -158,7 +158,7 @@ catchSTM (STM m) h = STM body
             Right a -> do
                             --writeIORef r (rollback_m >> old_rollback)
                             --modifyRGRef r (\ old_rollback -> (rollback_m >> old_rollback)) (\ x y -> y)
-                            modifyRGRef r (\ old_rollback -> (rollback_m `seqIOUnit` old_rollback)) (\ x y -> y)
+                            modifyRGRef r (\ old_rollback -> (rollback_m `seqIOUnit` old_rollback)) --(\ x y -> y)
                             return a
 
 newtype TVar a = TVar (IORef a)
@@ -192,7 +192,7 @@ writeTVar (TVar ref) a = STM body
     body r = do
         oldval <- readIORef ref
         --modifyRGRef r (writeIORef ref oldval >>) (\x y -> y)
-        modifyRGRef r (writeIORef ref oldval `seqIOUnit`) (\x y -> y)
+        modifyRGRef r (writeIORef ref oldval `seqIOUnit`) --(\x y -> y)
         writeIORef ref a
         
 
