@@ -3,6 +3,8 @@
 -- since LH seems to not support record matching in measure definitions.
 
 {-# LANGUAGE BangPatterns,CPP #-}
+-- Disable termination checking; this is lock-free, not wait-free
+{-@ LIQUID "--no-termination" @-}
 module CASList where
 
 import Control.Monad
@@ -178,7 +180,7 @@ allocNull =
    -- IMPORTANT: For a generic version, it's crucial that we provide a non-reflexive instance of the
    -- relation if possible when giving the "R-inhabited" witness
    -- Using 'undefined' gets us around the matter of pulling an a out of thin air
-   newRGRef memo_null undefined any_stable_listrg listrg_refl
+   newRGRef memo_null undefined --any_stable_listrg listrg_refl
     -- TODO: apparently 'undefined' gets the refinement false (of course!), which means we're not
     -- really checking this line
 
@@ -188,7 +190,7 @@ newList =
    --do null <- newRGRef memo_null memo_null any_stable_listrg
    do null <- allocNull
       let memo_hd = Head null 
-      hd <- newRGRef memo_hd memo_hd any_stable_listrg listrg_refl
+      hd <- newRGRef memo_hd memo_hd --any_stable_listrg listrg_refl
       hdPtr <- newIORef hd
       tailPtr <- newIORef null
       return (ListHandle hdPtr tailPtr)
@@ -204,7 +206,7 @@ addToTail (ListHandle _ tailPtrPtr) x =
    do null <- allocNull
       repeatUntil 
          (do tailPtr <- readIORef tailPtrPtr
-             b <- rgCAS tailPtr Null (Node x null) any_stable_listrg
+             b <- rgCAS tailPtr Null (Node x null) --any_stable_listrg
              return b )
         -- we atomically update the tail
         -- (by spinning on the tailPtr)
@@ -218,7 +220,7 @@ addToTail (ListHandle _ tailPtrPtr) x =
                  IO Bool
 @-}
 rgListCAS :: Eq a => RGRef (List a) -> List a -> List a -> IO Bool
-rgListCAS r old new = rgCAS r old new any_stable_listrg
+rgListCAS r old new = rgCAS r old new --any_stable_listrg
 
 -- I exported pastValue via qualif, but simply defining this fixes qualifier inference....
 {-@ readPastValue :: x:InteriorPtr a -> IO ({v:(List a) | (pastValue x v)}) @-}
@@ -269,13 +271,13 @@ find (ListHandle head _) x =
                         case prevNode of
                           -- TODO: Do I actually need rgListCAS here to get the types right, or did
                           -- using it just help inference give a better / more local error report?
-                          Node prevVal _ -> do b <- rgListCAS prevPtr prevNode (Node prevVal (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                          Node prevVal _ -> do b <- rgListCAS prevPtr prevNode (Node prevVal (liquidAssume (axiom_pastIsTerminal curPtr curNode {-(terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)-}) nextNode))
                                                if b then go prevPtr else go curPtr
                           --Next line typechecks fine, switched to rgListCAS for consistency and to
                           --ensure rgListCAS wasn't breaking some useful inference
                           --Head _ -> do b <- rgCAS prevPtr prevNode (Head nextNode) any_stable_listrg
                           --Head _ -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
-                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode {-(terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)-}) nextNode))
                                        if b then go prevPtr else go curPtr
                           DelNode _ -> go curPtr    -- if parent deleted simply move ahead
              {-
@@ -313,10 +315,10 @@ delete (ListHandle head _) x =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode {-(terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)-}) nextNode))
                                          if b then go prevPtr else go curPtr
                           --Head {} -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
-                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode {-(terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)-}) nextNode))
                                        if b then go prevPtr else go curPtr
                           DelNode {} -> go curPtr    -- if parent deleted simply move ahead
 
@@ -362,10 +364,10 @@ iterateList itPtrPtr =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                          Node v _ -> do b <- rgListCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode {-(terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)-}) nextNode))
                                          if b then go prevPtr else go curPtr
                           --Head _ -> do b <- rgListCAS prevPtr prevNode (Head nextNode)
-                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                          Head _ -> do b <- rgListCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode {-(terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)-}) nextNode))
                                        if b then go prevPtr else go curPtr
                           DelNode _ -> go curPtr    -- if parent deleted simply move ahead
 

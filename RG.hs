@@ -87,16 +87,17 @@ writeIORef2 r old new = writeIORef r new
    it forces r to be inhabited. -}
 -- ((r (getfst v) (getsnd v)) /\ (v = (x,y)))
 {-@ newRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
+                    {x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}}
+                    {x:a<p> -> y:a<g x> -> {v:a<r x> | (v = y) }}
                     e:a<p> -> 
                     e2:a<g e> ->
-                    f:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
-                    i:(x:a<p> -> y:a<g x> -> {v:a<r x> | (v = y) }) ->
                     IO (RGRef <p, r, g> a) @-}
-newRGRef :: a -> a -> (a -> a -> a) -> (a -> a -> a) -> IO (RGRef a)
-newRGRef e e2 stabilityPf impPf = do {
+newRGRef :: a -> a -> IO (RGRef a)
+newRGRef e e2 = do {
                             r <- newIORef e;
                             return (Wrap r)
                          }
+
 -- We'll be needing some witness of past values
 {-@ measure pastValue :: RGRef a -> a -> Prop @-}
 {-@ qualif PastValue(r:RGRef a, x:a): (pastValue r x) @-}
@@ -104,13 +105,13 @@ newRGRef e e2 stabilityPf impPf = do {
 {-@ qualif TerminalValue(r:RGRef a): (terminalValue r) @-}
 
 {-@ assume axiom_pastIsTerminal :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
+                             {x:{x:a | x = v} -> y:a<r x> -> {z:a | ((z = y) && (z = x))}}
+                             {x:{x:a | x = v} -> y:a<g x> -> {z:a | ((z = y) && (z = x))}}
                              ref:RGRef<p,r,g> a ->
                              v:{v:a | (pastValue ref v)} ->
-                             pf:(x:{x:a | x = v} -> y:a<r x> -> {z:a | ((z = y) && (z = x))}) ->
-                             pf2:(x:{x:a | x = v} -> y:a<g x> -> {z:a | ((z = y) && (z = x))}) ->
                              { b : Bool | (((terminalValue ref) = v) <=> (pastValue ref v))}
                              @-}
-axiom_pastIsTerminal :: RGRef a -> a -> (a -> a -> a) -> (a -> a -> a) -> Bool
+axiom_pastIsTerminal :: RGRef a -> a -> Bool
 axiom_pastIsTerminal = undefined
 
 {-@ assume typecheck_pastval :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
@@ -142,39 +143,39 @@ writeRGRef  (Wrap x) old new = writeIORef x new
 {- assume Data.IORef.modifyIORef :: forall <p :: a -> Prop>. IORef a<p> -> (a<p> -> a<p>) -> IO () @-}
 
 {-@ modifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
+                    {x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}}
                     rf:(RGRef<p, r, g> a) ->
                     f:(x:a<p> -> a<g x>) ->
-                    pf:(x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}) ->
                     IO () @-}
-modifyRGRef :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
-modifyRGRef (Wrap x) f pf = modifyIORef x (\ v -> pf v (f v))
+modifyRGRef :: RGRef a -> (a -> a) -> IO ()
+modifyRGRef (Wrap x) f = modifyIORef x f --(\ v -> pf v (f v))
 
 {-@ modifyRGRef' :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
-                    RGRef<p, r, g> a ->
-                    f:(x:a<p> -> a<g x>) ->
-                    pf:(x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}) ->
-                    IO () @-}
--- TODO: strictify, so we don't de-optimize modifyIORef' calls
-modifyRGRef' :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
-modifyRGRef' (Wrap x) f pf = modifyIORef' x (\ v -> pf v (f v))
-
-{-@ atomicModifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
+                    {x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}}
                     rf:(RGRef<p, r, g> a) ->
                     f:(x:a<p> -> a<g x>) ->
-                    pf:(x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}) ->
                     IO () @-}
-atomicModifyRGRef :: RGRef a -> (a -> a) -> (a -> a -> a) -> IO ()
-atomicModifyRGRef (Wrap x) f pf = atomicModifyIORef' x (\ v -> (pf v (f v),()))
+-- TODO: strictify, so we don't de-optimize modifyIORef' calls
+modifyRGRef' :: RGRef a -> (a -> a) -> IO ()
+modifyRGRef' (Wrap x) f = modifyIORef' x f --(\ v -> pf v (f v))
+
+{-@ atomicModifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
+                    {x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}}
+                    rf:(RGRef<p, r, g> a) ->
+                    f:(x:a<p> -> a<g x>) ->
+                    IO () @-}
+atomicModifyRGRef :: RGRef a -> (a -> a) -> IO ()
+atomicModifyRGRef (Wrap x) f = atomicModifyIORef' x (\ v -> ((f v),()))
 
 {- The following is an adaptation of atomCAS from GHC's testsuite/tests/concurrent/prog003/CASList.hs -}
 {-@ rgCAS :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
+             {x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}}
              Eq a =>
              RGRef<p,r,g> a -> old:a<p> -> new:a<g old> ->
-             pf:(x:a<p> -> y:a<g x> -> {v:a<p> | (v = y)}) ->
              IO Bool
 @-}
-rgCAS :: Eq a => RGRef a -> a -> a -> (a -> a -> a) -> IO Bool
-rgCAS (Wrap ptr) old new pf =
+rgCAS :: Eq a => RGRef a -> a -> a -> IO Bool
+rgCAS (Wrap ptr) old new =
    atomicModifyIORef' ptr (\ cur -> if cur == old
-                                   then (pf old new, True)
+                                   then (new, True)
                                    else (cur, False))
