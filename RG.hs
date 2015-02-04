@@ -89,11 +89,11 @@ writeIORef2 r old new = writeIORef r new
 {-@ newRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
                     {x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}}
                     {x:a<p> -> y:a<g x> -> {v:a<r x> | (v = y) }}
+                    {x:a<p> -> {v:a | v = x} -> a<g x>}
                     e:a<p> -> 
-                    e2:a<g e> ->
                     IO (RGRef <p, r, g> a) @-}
-newRGRef :: a -> a -> IO (RGRef a)
-newRGRef e e2 = do {
+newRGRef :: a -> IO (RGRef a)
+newRGRef e = do {
                             r <- newIORef e;
                             return (Wrap r)
                          }

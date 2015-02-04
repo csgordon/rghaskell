@@ -177,12 +177,7 @@ dummyRef = undefined
 allocNull :: IO (RGRef (List a))
 allocNull = 
    let memo_null = Null in
-   -- IMPORTANT: For a generic version, it's crucial that we provide a non-reflexive instance of the
-   -- relation if possible when giving the "R-inhabited" witness
-   -- Using 'undefined' gets us around the matter of pulling an a out of thin air
-   newRGRef memo_null undefined --any_stable_listrg listrg_refl
-    -- TODO: apparently 'undefined' gets the refinement false (of course!), which means we're not
-    -- really checking this line
+   newRGRef memo_null
 
 -- we create a new list
 newList :: IO (ListHandle a)
@@ -190,7 +185,7 @@ newList =
    --do null <- newRGRef memo_null memo_null any_stable_listrg
    do null <- allocNull
       let memo_hd = Head null 
-      hd <- newRGRef memo_hd memo_hd --any_stable_listrg listrg_refl
+      hd <- newRGRef memo_hd
       hdPtr <- newIORef hd
       tailPtr <- newIORef null
       return (ListHandle hdPtr tailPtr)

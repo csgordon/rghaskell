@@ -2,19 +2,10 @@ module MonotonicCounter where
 
 import RG
 
--- Requires explicit type anno for LH type to refine the inferred Haskell type
-{-@ stable_monocount :: x:{v:Int | v > 0 } -> y:{v:Int | x <= v } -> {v:Int | ((v = y) && (v > 0)) } @-}
-stable_monocount :: Int -> Int -> Int
-stable_monocount x y = y
-
-{-@ le_refl :: x:Int -> y:{v:Int | x <= v } -> {v:Int | ((x <= v) && (v = y)) } @-}
-le_refl :: Int -> Int -> Int
-le_refl x y = y
-
 -- Monotonically increasing counter!
 {-@ alloc_counter :: () -> IO (RGRef<{\x -> x > 0}, {\x y -> x <= y}, {\x y -> x <= y}> Int) @-}
 alloc_counter :: () -> IO (RGRef Int)
-alloc_counter _ = newRGRef 1 3
+alloc_counter _ = newRGRef 1
 
 {-@ inc_counter :: RGRef<{\x -> x > 0}, {\x y -> x <= y}, {\x y -> x <= y}> Int -> IO () @-}
 inc_counter :: RGRef Int -> IO ()
@@ -42,8 +33,8 @@ proves_nothing :: a -> a -> a
 proves_nothing x y = y --proves_nothing x y
 
 main = do {
-          r <- newRGRef 1 3; -- SHOULD BE ref{Int|>0}[<=,<=] (and is)
-          r2 <- newRGRef 2 9;  -- SHOULD BE ref{Int|>0}[havoc,havoc].
+          r <- newRGRef 1; -- SHOULD BE ref{Int|>0}[<=,<=] (and is)
+          r2 <- newRGRef 2;  -- SHOULD BE ref{Int|>0}[havoc,havoc].
           -- Instead we get the same as above....
           --r3 <- newRGRef 3 10 proves_reflexivity; -- BAD, correctly rejected
           c <- alloc_counter ();
