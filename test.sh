@@ -2,7 +2,7 @@
 
 for f in RG.hs RGTests.hs examples/MonotonicCounter.hs examples/LockfreeMonotonicCounter.hs examples/STMLog.hs examples/CASList.hs;
 do 
-liquid $f &> /dev/null;
+liquid $f --no-prune-unsorted &> /dev/null;
 RET="$?"
 if [ "$RET" -eq "0" ];
 then
