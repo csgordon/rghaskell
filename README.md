@@ -35,7 +35,5 @@ and being a refinement of a language with real programs!  The main simplificatio
 
 Dependencies
 ------------
-This repository requires a development version of Liquid Haskell to build.
-
-The last known-good Liquid Haskell revision is 898c0b8936208dc82081f2fb657a4d0a175f246e from
-December 29, 2014.  (I haven't tried newer yet.)
+Liquid Haskell version 0.3.0.0 or higher.  The version on Hackage (as of late Feb. 2015) should
+work.

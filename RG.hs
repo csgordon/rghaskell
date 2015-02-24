@@ -87,9 +87,9 @@ writeIORef2 r old new = writeIORef r new
    it forces r to be inhabited. -}
 -- ((r (getfst v) (getsnd v)) /\ (v = (x,y)))
 {-@ newRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
-                    {x:a<p> -> a<r x> -> a<p>}
-                    {x:a<p> -> a<g x> -> a<r x>}
-                    {x:a<p> -> {v:a | v = x} -> a<g x>}
+                    {x::a<p> |- a<r x> <: a<p>}
+                    {x::a<p> |- a<g x> <: a<r x>}
+                    {x::a<p> |- {v:a | v = x} <: a<g x>}
                     e:a<p> -> 
                     IO (RGRef <p, r, g> a) @-}
 newRGRef :: a -> IO (RGRef a)
@@ -143,7 +143,7 @@ writeRGRef  (Wrap x) old new = writeIORef x new
 {- assume Data.IORef.modifyIORef :: forall <p :: a -> Prop>. IORef a<p> -> (a<p> -> a<p>) -> IO () @-}
 
 {-@ modifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
-                    {x:a<p> -> a<g x> -> a<p>}
+                    {x::a<p> |- a<g x> <: a<p>}
                     rf:(RGRef<p, r, g> a) ->
                     f:(x:a<p> -> a<g x>) ->
                     IO () @-}
@@ -151,7 +151,7 @@ modifyRGRef :: RGRef a -> (a -> a) -> IO ()
 modifyRGRef (Wrap x) f = modifyIORef x f --(\ v -> pf v (f v))
 
 {-@ modifyRGRef' :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
-                    {x:a<p> -> y:a<g x> -> a<p>}
+                    {x::a<p> |- a<g x> <: a<p>}
                     rf:(RGRef<p, r, g> a) ->
                     f:(x:a<p> -> a<g x>) ->
                     IO () @-}
@@ -160,7 +160,7 @@ modifyRGRef' :: RGRef a -> (a -> a) -> IO ()
 modifyRGRef' (Wrap x) f = modifyIORef' x f --(\ v -> pf v (f v))
 
 {-@ atomicModifyRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
-                    {x:a<p> -> y:a<g x> -> a<p>}
+                    {x::a<p> |- a<g x> <: a<p>}
                     rf:(RGRef<p, r, g> a) ->
                     f:(x:a<p> -> a<g x>) ->
                     IO () @-}
@@ -169,7 +169,7 @@ atomicModifyRGRef (Wrap x) f = atomicModifyIORef' x (\ v -> ((f v),()))
 
 {- The following is an adaptation of atomCAS from GHC's testsuite/tests/concurrent/prog003/CASList.hs -}
 {-@ rgCAS :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop >.
-             {x:a<p> -> y:a<g x> -> a<p>}
+             {x::a<p> |- a<g x> <: a<p>}
              Eq a =>
              RGRef<p,r,g> a -> old:a<p> -> new:a<g old> ->
              IO Bool
