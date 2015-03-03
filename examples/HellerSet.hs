@@ -225,7 +225,8 @@ find (SetHandle head _) x =
   do startPtr <- readIORef head
      go startPtr
    where
-      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a) -> IO Bool @-}
+      {-@ go :: forall <p :: a -> Prop >.
+                RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) -> IO Bool @-}
       go !prevPtr =
            do prevNode <-  readRGRef2 prevPtr
               --prevNode2 <- readRGRef2 prevPtr
@@ -246,8 +247,8 @@ find (SetHandle head _) x =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          -- TODO: Do I actually need rgSetCAS here to get the types right, or did
-                          -- using it just help inference give a better / more local error report?
+                          -- TODO: In this case, could I just add an axiom reflecting the
+                          -- appropriate variance of p???
                           Node prevVal _ -> do b <- rgSetCAS prevPtr prevNode (Node prevVal (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                                if b then go prevPtr else go curPtr
                           --Next line typechecks fine, switched to rgSetCAS for consistency and to
