@@ -126,7 +126,7 @@ axiom_pastIsTerminal = undefined
                     {v:a<q> | (pastValue ref v)} ->
                     {r : (RGRef<q,r,g> a) | (ref = r)} @-}
 axiom_injectStable :: RGRef a -> a -> RGRef a
-axiom_injectStable = undefined
+axiom_injectStable ref v = let _ = undefined in ref
 
 {-@ assume typecheck_pastval :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
                                 x:RGRef<p,r,g> a ->
