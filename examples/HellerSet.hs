@@ -235,7 +235,6 @@ find (SetHandle head _) x =
               --_ <- return (typecheck_pastval prevPtr prevNode2)
               let curPtr = myNext prevNode -- head/node/delnode have all next
               curNode <- forgetIOTriple (readRGRef curPtr)
--- ## curNode :: { v : Set a | pastValue curPtr v }
               case curNode of
                 Node y nextNode ->
                    if (x == y)
@@ -247,25 +246,12 @@ find (SetHandle head _) x =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          -- TODO: In this case, could I just add an axiom reflecting the
-                          -- appropriate variance of p???
-                          Node prevVal _ -> do b <- rgSetCAS prevPtr prevNode (Node prevVal (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                          Node prevVal _ -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode)
+                                               b <- rgSetCAS prevPtr prevNode (Node prevVal refinedtail)
                                                if b then go prevPtr else go curPtr
-                          --Next line typechecks fine, switched to rgSetCAS for consistency and to
-                          --ensure rgSetCAS wasn't breaking some useful inference
-                          --Head _ -> do b <- rgCAS prevPtr prevNode (Head nextNode) any_stable_listrg
-                          --Head _ -> do b <- rgSetCAS prevPtr prevNode (Head nextNode)
                           Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
                           DelNode _ _ -> go curPtr    -- if parent deleted simply move ahead
-             {-
-                correct as well, but a deleted parent deleting a child is (for certain cases) a useless operation
-                                     do atomicModifyIORef prevPtr ( \ cur -> (cur{next = nextNode},True))
-                                        go prevPtr
-              -}
-
-  --in do startPtr <- readIORef head
-  --      go startPtr
 
 
 
@@ -305,104 +291,23 @@ delete (SetHandle head _) x =
 
 
 
--- the iterator always points to the PREVIOUS node,
--- recall that there's a static dummy new Head
--- Assumption: iterators are private, 
--- ie they won't be shared among threads
-{-@ newIterator :: SetHandle a -> IO (Iterator a) @-} -- <-- This use of Iterator is a LH alias
-newIterator :: SetHandle a -> IO (Iterator a)
-newIterator (SetHandle hd _) =
-  do hdPtr <- readIORef hd
-     it <- (newIORef hdPtr)
-     return it
-
--- we iterate through the list and return the first "not deleted" node
--- we delink deleted nodes
--- there's no need to adjust headSet, tailSet
--- cause headSet has a static Head and
--- tailSet points to Null
--- Again, Iterator in the LH type is a LH type alias
-{-@ iterateSet :: Eq a => Iterator a -> IO (Maybe (RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a))) @-}
-iterateSet :: Eq a => Iterator a -> IO (Maybe (RGRef (Set a)))
-iterateSet itPtrPtr = 
-  do startPtr <- readIORef itPtrPtr
-     go startPtr
-   where
-      {-@ go :: RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a) -> IO (Maybe (RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a))) @-}
-      go prevPtr =
-        do do prevNode <- forgetIOTriple (readRGRef prevPtr)
-              let curPtr = myNext prevNode -- head/node/delnode have all next
-              curNode <- forgetIOTriple (readRGRef curPtr)
-              case curNode of
-                Node _ _ -> do writeIORef itPtrPtr curPtr 
-                                 -- adjust iterator
-                               return (Just curPtr)
-                Null -> return Nothing -- reached end of list
-                DelNode _ nextNode -> 
-                         -- atomically delete curNode by setting the next of prevNode to next of curNode
-                         -- if this fails we simply move ahead
-                        case prevNode of
-                          Node v _ -> do b <- rgSetCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
-                                         if b then go prevPtr else go curPtr
-                          --Head _ -> do b <- rgSetCAS prevPtr prevNode (Head nextNode)
-                          Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
-                                       if b then go prevPtr else go curPtr
-                          DelNode _ _ -> go curPtr    -- if parent deleted simply move ahead
-
-  --in do startPtr <- readIORef itPtrPtr
-  --      go startPtr
 
 
---printing and counting
 
-printSet :: Show a => SetHandle a -> IO ()
-printSet (SetHandle ptrPtr _) =
-  do startptr <- (
-          do ptr <- readIORef ptrPtr
-             Head startptr <- forgetIOTriple (readRGRef ptr)
-             return startptr)
-     printSetHelp startptr
 
-{-@ printSetHelp :: Show a => InteriorPtr a -> IO () @-}
-printSetHelp :: Show a => RGRef (Set a) -> IO ()
-printSetHelp curNodePtr =
-   do { curNode <- forgetIOTriple (readRGRef curNodePtr)
-      ; case curNode of
-          Null -> putStr "Nil"
-          Node curval curnext ->
-             do { putStr (show curval  ++ " -> ")
-                ;  printSetHelp curnext }
-          DelNode _ curnext ->
-             do { putStr ("DEAD -> ")
-                ;  printSetHelp curnext }
-      } 
 
--- I've left these commented out; the uses of addition in cntSetHelp are failing because some weird
--- bound gets picked up for the formal parameter...
---cntSet :: Show a => SetHandle a -> IO Int
---cntSet (SetHandle ptrPtr _) =
---  do startptr <- (
---          do ptr <- readIORef ptrPtr
---             Head startptr <- forgetIOTriple (readRGRef ptr)
---             return startptr)
---     cntSetHelp startptr 0
---
---
---{- cntSetHelp :: Show a => InteriorPtr a -> Int -> IO Int @-}
---cntSetHelp :: Show a => RGRef (Set a) -> Int -> IO Int
---cntSetHelp curNodePtr i =
---   do { curNode <- forgetIOTriple (readRGRef curNodePtr)
---      ; case curNode of
---          Null -> return i
---          Node curval curnext -> 
---                cntSetHelp curnext (i+1)
---          DelNode _ curnext ->
---                cntSetHelp curnext (i+1)
---      } 
---
--- Whitespace to the popups in the HTML render are readable
--- Dots to allow scrolling far to the
--- right............................................................................................................................................................................................................................................................................................................................
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
