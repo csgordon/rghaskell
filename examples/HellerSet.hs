@@ -219,8 +219,14 @@ readPastValue x = readRGRef2 x
 terminal_listrg :: RGRef (Set a) -> Set a -> Set a -> Set a -> Set a
 terminal_listrg rf v x y = liquidAssume (isDelOnly x) y
 
+{-@ covar_set :: forall <p :: a -> Prop, r :: a -> Prop>.
+                    {x::a<r> |- a<r> <: a<p> }
+                    Set <r> a ->
+                    Set <p> a @-}
+covar_set :: Eq a => Set a -> Set a
+covar_set = undefined -- TODO: This is implementable via pattern match + reconstruct
 
-find :: Eq a => SetHandle a -> a -> IO Bool
+find :: Ord a => SetHandle a -> a -> IO Bool
 find (SetHandle head _) x =
   do startPtr <- readIORef head
      go startPtr
@@ -246,8 +252,16 @@ find (SetHandle head _) x =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node prevVal _ -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode)
-                                               b <- rgSetCAS prevPtr prevNode (Node prevVal refinedtail)
+                          Node prevVal _ -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) (nextNode))
+                                               -- TODO: Try using covar_set or similar to coerce
+                                               -- bound on nextNode / refinedtail (likely the
+                                               -- latter)
+                                               let _ = liquidAssert (prevVal < v)
+                                               -- TODO: AH!  covar_set doesn't work here because we
+                                               -- need the covariance to apply under the RGRef ctor!
+                                               -- which is in general not sound for standard
+                                               -- reasons...
+                                               b <- rgSetCAS prevPtr prevNode (Node prevVal (covar_set refinedtail))
                                                if b then go prevPtr else go curPtr
                           Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
@@ -279,8 +293,8 @@ delete (SetHandle head _) x =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node v _ -> do b <- rgSetCAS prevPtr prevNode (Node v (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
-                                         if b then go prevPtr else go curPtr
+                          Node v2 _ -> do b <- rgSetCAS prevPtr prevNode (Node v2 (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                                          if b then go prevPtr else go curPtr
                           --Head {} -> do b <- rgSetCAS prevPtr prevNode (Head nextNode)
                           Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
@@ -314,4 +328,5 @@ delete (SetHandle head _) x =
 
 
 
-
+-- pad html render
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
