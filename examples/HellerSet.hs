@@ -81,14 +81,14 @@ data SetHandle a = SetHandle (UNPACK(IORef (RGRef (Set a))))
                              (UNPACK(IORef (RGRef (Set a))))
 
 {-# INLINE myNext #-}
-{-@ assume myNext :: l:Set a -> 
-              {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> (slack l < x)}> a) |
+{-@ myNext :: l:Set a -> 
+              {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> ((isHead l) || (slack l < x))}> a) |
                    ((nxt l) = r) }
 @-}
 myNext :: Set a -> RGRef (Set a)
---myNext (Node v lb n) = n
---myNext (DelNode v lb n) = n
---myNext (Head n) = n
+myNext (Node v lb n) = n
+myNext (DelNode v lb n) = n
+myNext (Head n) = n
 myNext _ = error "myNext"
 
 {-@ type InteriorPtr a = RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a) @-}
@@ -103,9 +103,15 @@ myNext _ = error "myNext"
 @-}
 {-@ measure isHead :: Set a -> Prop
     isHead (Head n) = true
+    isHead (Node v lb n) = false
+    isHead (DelNode v lb n) = false
+    isHead (Null) = false
 @-}
 {-@ measure isNode :: Set a -> Prop
     isNode (Node v lb n) = true
+    isNode (DelNode v lb n) = false
+    isNode (Null) = false
+    isNode (Head n) = false
 @-}
 {-@ measure val :: Set a -> a
     val (Node v lb n) = v
@@ -113,9 +119,15 @@ myNext _ = error "myNext"
 @-}
 {-@ measure isDel :: Set a -> Prop
     isDel (DelNode v lb n) = true
+    isDel (Null) = false
+    isDel (Head n) = false
+    isDel (Node v lb n) = false
 @-}
 {-@ measure isNull :: Set a -> Prop
     isNull (Null) = true
+    isNull (Head n) = false
+    isNull (Node v lb n) = false
+    isNull (DelNode v lb n) = false
 @-}
 -- A cleaner to show the SMT these predicates are disjoint may be to redefine them as predicates on
 -- another measure mapping nodes to some SetTypeEnum...
@@ -250,24 +262,6 @@ find (SetHandle head _) x =
                           Node prevVal vlb q -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) (nextNode))
                                                    let _ = liquidAssert (q == curPtr) True
                                                    --let comp = liquidAssertB (prevVal < v)
-                                                   -- TODO: AH!  covar_set doesn't work here because we
-                                                   -- need the covariance to apply under the RGRef ctor!
-                                                   -- which is in general not sound for standard
-                                                   -- reasons...
-                                                   -- LH flags an error on lb, which it sees as 
-                                                   --   { x : Int | x == lb && v <= x }
-                                                   -- where it wants
-                                                   --   { x : Int | prevVal <= x }
-                                                   -- and above it successfully discharged that
-                                                   --   prevVal < v
-                                                   -- So it has all the information, it's just not
-                                                   -- propagating all the way.  Maybe a helper of
-                                                   -- type:
-                                                   --    x:Int -> y:{y:Int|x < y} -> z:{z:Int|y<=z}
-                                                   --        -> {v : Int | x < v && v == z }
-                                                   -- would help?  As long as the equality
-                                                   -- propagates to the comparison with
-                                                   -- refinedtail's lower bound, which it should
                                                    -- TODO: using liquidAssume (prevVal < v) discharges the
                                                    -- refinement, but seems to feed back to the
                                                    -- liquidAssert above, too.  That's... bad.  but

@@ -117,16 +117,16 @@ axiom_pastIsTerminal = undefined
 {- A more general, but less pleasant to use way to exploit observations of stable properties.
  - If we observe that some past value of ref has property q, and q is stable w.r.t. r, we can
  - conclude that current and future values of ref also satisfy q. -}
-{-@ assume axiom_injectStable :: forall <p :: a -> Prop, 
+{- assume axiom_injectStable :: forall <p :: a -> Prop, 
                                          q :: a -> Prop,
                                          r :: a -> a -> Prop,
                                          g :: a -> a -> Prop>.
                     {x::a<q> |- a<r x> <: a<q>}
                     ref:RGRef<p,r,g> a ->
                     {v:a<q> | (pastValue ref v)} ->
-                    {r : (RGRef<q,r,g> a) | (ref = r)} @-}
-axiom_injectStable :: RGRef a -> a -> RGRef a
-axiom_injectStable ref v = let _ = undefined in ref
+                    {r : (RGRef<q,r,g> a) | (ref = r)} -}
+--axiom_injectStable :: RGRef a -> a -> RGRef a
+--axiom_injectStable ref v = let _ = undefined in ref
 
 {-@ assume typecheck_pastval :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
                                 x:RGRef<p,r,g> a ->

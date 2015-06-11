@@ -38,11 +38,11 @@ test_axiom ir (Wrap rr) v w = liquidAssume (axiom_rgpointsTo rr w v) w
 coerce :: (a -> a) -> (a -> a -> a) -> a -> a
 coerce f pf v = pf v (f v)
 
-{-@ test_injectStable :: r:RGRef<{\x -> x > 0},{\x y -> x <= y},{\x y -> x <= y}> Int ->
+{- test_injectStable :: r:RGRef<{\x -> x > 0},{\x y -> x <= y},{\x y -> x <= y}> Int ->
                          {v : Int | (pastValue r v) && v > 20} ->
-                         {x : RGRef<{\x -> x > 20},{\x y -> x <= y},{\x y -> x <= y}> Int | x = r} @-}
-test_injectStable :: RGRef Int -> Int -> RGRef Int
-test_injectStable r v = axiom_injectStable r v
+                         {x : RGRef<{\x -> x > 20},{\x y -> x <= y},{\x y -> x <= y}> Int | x = r} -}
+--test_injectStable :: RGRef Int -> Int -> RGRef Int
+--test_injectStable r v = axiom_injectStable r v
 
 
 
