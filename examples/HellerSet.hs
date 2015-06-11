@@ -65,13 +65,13 @@ listrg_refl x y = y
 -- measure rather than a name?
 {-@
 data Set a <p :: a -> Prop > = 
-    Node (node_val :: a<p>) (node_next :: ((RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> (node_val < x)}> a))))
-  | DelNode (del_val :: a<p>) (del_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> (del_val < x)}> a)))
+    Node (node_val :: a<p>) (slack :: { v : a | node_val <= v}) (node_next :: ((RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> (slack < x)}> a))))
+  | DelNode (del_val :: a<p>) (slack :: { v : a | del_val <= v}) (del_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> (slack < x)}> a)))
   | Null
   | Head (head_next :: (RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> (1 > 0)}> a)))
 @-}
-data Set a = Node a (UNPACK(RGRef (Set a)))
-            | DelNode a (UNPACK(RGRef (Set a)))
+data Set a = Node a a (UNPACK(RGRef (Set a)))
+            | DelNode a a (UNPACK(RGRef (Set a)))
             | Null
             | Head (UNPACK(RGRef (Set a))) deriving Eq
 
@@ -81,14 +81,14 @@ data SetHandle a = SetHandle (UNPACK(IORef (RGRef (Set a))))
                              (UNPACK(IORef (RGRef (Set a))))
 
 {-# INLINE myNext #-}
-{-@ myNext :: l:Set a -> 
-              {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a) |
+{-@ assume myNext :: l:Set a -> 
+              {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> (slack l < x)}> a) |
                    ((nxt l) = r) }
 @-}
 myNext :: Set a -> RGRef (Set a)
-myNext (Node v n) = n
-myNext (DelNode v n) = n
-myNext (Head n) = n
+--myNext (Node v lb n) = n
+--myNext (DelNode v lb n) = n
+--myNext (Head n) = n
 myNext _ = error "myNext"
 
 {-@ type InteriorPtr a = RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a) @-}
@@ -97,22 +97,22 @@ myNext _ = error "myNext"
 -- which is great.  It means fewer refinements are added
 -- to each constructor, making a lot less work for inference and SMT.
 {-@ measure nxt :: Set a -> (RGRef (Set a))
-    nxt (Node v n) = n
-    nxt (DelNode v n) = n
+    nxt (Node v lb n) = n
+    nxt (DelNode v lb n) = n
     nxt (Head n) = n
 @-}
 {-@ measure isHead :: Set a -> Prop
     isHead (Head n) = true
 @-}
 {-@ measure isNode :: Set a -> Prop
-    isNode (Node v n) = true
+    isNode (Node v lb n) = true
 @-}
 {-@ measure val :: Set a -> a
-    val (Node v n) = v
-    val (DelNode v n) = v
+    val (Node v lb n) = v
+    val (DelNode v lb n) = v
 @-}
 {-@ measure isDel :: Set a -> Prop
-    isDel (DelNode v n) = true
+    isDel (DelNode v lb n) = true
 @-}
 {-@ measure isNull :: Set a -> Prop
     isNull (Null) = true
@@ -192,7 +192,7 @@ addToTail (SetHandle _ tailPtrPtr) x =
    do null <- allocNull
       repeatUntil 
          (do tailPtr <- readIORef tailPtrPtr
-             b <- rgCAS tailPtr Null (Node x null) --any_stable_listrg
+             b <- rgCAS tailPtr Null (Node x x null) --any_stable_listrg
              return b )
         -- we atomically update the tail
         -- (by spinning on the tailPtr)
@@ -219,13 +219,6 @@ readPastValue x = readRGRef2 x
 terminal_listrg :: RGRef (Set a) -> Set a -> Set a -> Set a -> Set a
 terminal_listrg rf v x y = liquidAssume (isDelOnly x) y
 
-{-@ covar_set :: forall <p :: a -> Prop, r :: a -> Prop>.
-                    {x::a<r> |- a<r> <: a<p> }
-                    Set <r> a ->
-                    Set <p> a @-}
-covar_set :: Eq a => Set a -> Set a
-covar_set = undefined -- TODO: This is implementable via pattern match + reconstruct
-
 find :: Ord a => SetHandle a -> a -> IO Bool
 find (SetHandle head _) x =
   do startPtr <- readIORef head
@@ -239,33 +232,52 @@ find (SetHandle head _) x =
               readRGRef2 prevPtr >>= (return . (typecheck_pastval prevPtr))
               _ <- return (typecheck_pastval prevPtr prevNode)
               --_ <- return (typecheck_pastval prevPtr prevNode2)
+              -- !!! What's the <p> parameter on curPtr's Set?  Looking at the HTML hovers, it looks
+              -- like it's True rather than anything about a bound relating it do prevNode...
               let curPtr = myNext prevNode -- head/node/delnode have all next
               curNode <- forgetIOTriple (readRGRef curPtr)
               case curNode of
-                Node y nextNode ->
+                Node y lb nextNode ->
                    if (x == y)
                    then -- node found and alive 
                       return True
                    else go curPtr -- continue
                 Null -> return False -- reached end of list
-                DelNode v nextNode -> 
+                DelNode v lb nextNode -> 
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node prevVal _ -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) (nextNode))
-                                               -- TODO: Try using covar_set or similar to coerce
-                                               -- bound on nextNode / refinedtail (likely the
-                                               -- latter)
-                                               let _ = liquidAssert (prevVal < v)
-                                               -- TODO: AH!  covar_set doesn't work here because we
-                                               -- need the covariance to apply under the RGRef ctor!
-                                               -- which is in general not sound for standard
-                                               -- reasons...
-                                               b <- rgSetCAS prevPtr prevNode (Node prevVal (covar_set refinedtail))
-                                               if b then go prevPtr else go curPtr
+                          Node prevVal vlb q -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) (nextNode))
+                                                   let _ = liquidAssert (q == curPtr) True
+                                                   --let comp = liquidAssertB (prevVal < v)
+                                                   -- TODO: AH!  covar_set doesn't work here because we
+                                                   -- need the covariance to apply under the RGRef ctor!
+                                                   -- which is in general not sound for standard
+                                                   -- reasons...
+                                                   -- LH flags an error on lb, which it sees as 
+                                                   --   { x : Int | x == lb && v <= x }
+                                                   -- where it wants
+                                                   --   { x : Int | prevVal <= x }
+                                                   -- and above it successfully discharged that
+                                                   --   prevVal < v
+                                                   -- So it has all the information, it's just not
+                                                   -- propagating all the way.  Maybe a helper of
+                                                   -- type:
+                                                   --    x:Int -> y:{y:Int|x < y} -> z:{z:Int|y<=z}
+                                                   --        -> {v : Int | x < v && v == z }
+                                                   -- would help?  As long as the equality
+                                                   -- propagates to the comparison with
+                                                   -- refinedtail's lower bound, which it should
+                                                   -- TODO: using liquidAssume (prevVal < v) discharges the
+                                                   -- refinement, but seems to feed back to the
+                                                   -- liquidAssert above, too.  That's... bad.  but
+                                                   -- at least I know I'm trying to prove the right
+                                                   -- thing.
+                                                   b <- rgSetCAS prevPtr prevNode (Node prevVal (liquidAssert (prevVal < v) lb) (refinedtail))
+                                                   if b then go prevPtr else go curPtr
                           Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
-                          DelNode _ _ -> go curPtr    -- if parent deleted simply move ahead
+                          DelNode _ _ _ -> go curPtr    -- if parent deleted simply move ahead
 
 
 
@@ -281,24 +293,24 @@ delete (SetHandle head _) x =
               let curPtr = myNext prevNode -- head/node/delnode have all next
               curNode <- forgetIOTriple (readRGRef curPtr)
               case curNode of
-                Node y nextNode ->
+                Node y lb nextNode ->
                    if (x == y)
                    then -- node found and alive 
-                      do b <- rgSetCAS curPtr curNode (DelNode y nextNode)
+                      do b <- rgSetCAS curPtr curNode (DelNode y lb nextNode)
                          if b then return True
                           else go prevPtr -- spin
                    else go curPtr -- continue
                 Null -> return False -- reached end of list
-                DelNode v nextNode -> 
+                DelNode v lb nextNode -> 
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node v2 _ -> do b <- rgSetCAS prevPtr prevNode (Node v2 (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
-                                          if b then go prevPtr else go curPtr
+                          Node v2 v2lb _ -> do b <- rgSetCAS prevPtr prevNode (Node v2 lb (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                                               if b then go prevPtr else go curPtr
                           --Head {} -> do b <- rgSetCAS prevPtr prevNode (Head nextNode)
                           Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
-                          DelNode _ _ -> go curPtr    -- if parent deleted simply move ahead
+                          DelNode _ _ _ -> go curPtr    -- if parent deleted simply move ahead
 
   --in do startPtr <- readIORef head
   --      go startPtr
