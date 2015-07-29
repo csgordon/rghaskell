@@ -238,13 +238,6 @@ refine_val ref x past = injectStable ref past
 hack :: RGRef (Set a) -> a -> RGRef (Set a)
 hack ref x = undefined
 
-{-@ assume fake_pointsto :: forall <p :: a -> Prop >.
-                     ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) ->
-                     v:(Set <p> a) ->
-                     {x:Bool | shareValue ref = v} @-}
-fake_pointsto :: RGRef (Set a) -> Set a -> Bool
-fake_pointsto ref v = undefined
-
 insert :: Ord a => SetHandle a -> a -> IO Bool
 insert (SetHandle head _) x =
   do startPtr <- readIORef head
@@ -285,22 +278,16 @@ insert (SetHandle head _) x =
                                                    --let curPtr2 = refine_val curPtr x curNode
                                                    --let curPtr2 = hack curPtr x
                                                    let newNode = (Node x x curPtr)
-                                                    -- #2 this line fails because we don't yet have
-                                                    -- a construct to introduce shareValue for the
-                                                    -- insertion cases in SetRG
-                                                   -- #3 AND apparently also because it can't prove
+                                                   -- #2 and apparently also because it can't prove
                                                    -- prevVal <= x.  Need to refine type of go for
                                                    -- lb?  
-                                                   --b <- rgSetCAS prevPtr prevNode (liquidAssume (fake_pointsto alloc newNode) (Node prevVal prevVal alloc))
-                                                   -- TODO: fix for proper plumbing of pointsto
-                                                   --b <- rgSetCAS prevPtr prevNode (Node prevVal prevVal alloc)
                                                    b <- rgCASpublish newNode prevPtr prevNode (\ptr -> Node prevVal prevVal ptr)
                                                    if b then return True else go prevPtr
                           Head _ -> do let newNode = (Node x x curPtr)
                                        b <- rgCASpublish newNode prevPtr prevNode (\ptr -> Head ptr)
                                        if b then return True else go prevPtr
-                          DelNode _ _ _ -> undefined -- TODO: go startPtr -- predecessor deleted, try again
-             Null -> -- TODO insert at end
+                          DelNode _ _ _ -> go startPtr --undefined -- TODO: go startPtr -- predecessor deleted, try again
+             Null -> -- TODO insert at end... subset of previous case
                      undefined
              DelNode v lb nextNode -> 
                      case prevNode of
