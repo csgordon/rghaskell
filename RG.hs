@@ -15,58 +15,10 @@ import GHC.Base
 data RGRef a = Wrap (R.IORef a)
     deriving Eq
 
--- !!!!!! Apparently this include directive is silently doing nothing
-{-@ include <GHC/Base/IO.spec> @-}
-{-@ measure pointsTo :: IORef a -> RealWorld -> a -> Prop @-}
-{-@ qualif PointsTo(v:a, r:IORef a, w:RealWorld): (pointsTo r w v) @-}
-{-@ data GHC.Base.IO a <p :: RealWorld -> Prop , q :: RealWorld -> a -> Prop >
-     =  @-}
- -- was IO (io_act :: (RealWorld<p> -> ( RealWorld , a )<q>))
- -- Should be (# RealWorld, a #)
-{- data Data.IORef.IORef a <p :: a -> Prop, r :: a -> a -> Prop > = -}
-
 {-@ assume forgetIOTriple :: forall <p :: RealWorld -> Prop, r :: RealWorld -> a -> Prop, q :: a -> Prop>.
-                             IO<p,r> (a<q>) -> IO (a<q>) @-}
+                             IO (a<q>) -> IO (a<q>) @-}
 forgetIOTriple :: IO a -> IO a
 forgetIOTriple a = a
-
--- below, true should be {\w -> (q w x)} but this is a sort error, since explicit app of abstract
--- refinement isn't supported
-{-
-assume bindIO :: forall <p :: RealWorld -> Prop, q :: RealWorld -> a -> Prop, r :: a -> RealWorld -> b -> Prop>.
-                          IO<p,q> a -> (x:a -> IO<{\w -> (true)},r x> b) -> (exists[x:a].(IO<p,r x> b))
--}
-{-@ measure rgpointsTo :: RGRef a -> RealWorld -> a -> Prop @-}
-{-@ qualif RGPointsTo(v:a, r:RGRef a, w:RealWorld): (rgpointsTo r w v) @-}
--- Encode rgpointsTo (Wrap r) (w) (v) = (pointsTo r w v)
-{-@ axiom_rgpointsTo :: forall <p :: a -> Prop, r :: a -> a -> Prop>.
-                        ref:IORef a ->
-                        w:RealWorld ->
-                        c:a ->
-			{v:Bool | ((pointsTo ref w c) <=> (rgpointsTo (Wrap ref) w c))} 
-@-}
-axiom_rgpointsTo :: IORef a -> RealWorld -> a -> Bool
-axiom_rgpointsTo = undefined
-
-{- assume embed_pair_impl :: forall <p :: a -> b -> Prop, q :: c -> b -> Prop>.
-                              (a,b)<p> ->
-			      impl:(asP:(a,b)<p> -> {asQ:(a,c)<q> | (fst asQ = fst asP)}) ->
-			      (a,c)<q>
--}
-
-{-@ assume readIORefS :: x:{v: IORef a | true } -> IO<{\x -> (true)}, {\w v -> (pointsTo x w v)}> a @-}
-readIORefS :: IORef a -> IO a
-readIORefS = readIORef
-{-# INLINE readIORefS #-}
-
-{-@ assume writeIORef2 :: forall <p :: a -> Prop>. 
-                          x:(IORef a<p>) -> 
-                          old:a<p> -> 
-                          new:a<p> -> 
-                          (IO<{\w -> (pointsTo x w old)}, {\w v -> (pointsTo x w new)}> ()) @-}
-writeIORef2 :: IORef a -> a -> a -> IO ()
-writeIORef2 r old new = writeIORef r new
-{-# INLINE writeIORef2 #-}
 
 {- A stability proof can be embedded into LH as a function of type:
     x:a<p> -> y:a<r x> -> {v:a<p> | v = y}
@@ -93,16 +45,17 @@ writeIORef2 r old new = writeIORef r new
                     e:a<p> -> 
                     IO (RGRef <p, r, g> a) @-}
 newRGRef :: a -> IO (RGRef a)
-newRGRef e = do {
-                            r <- newIORef e;
-                            return (Wrap r)
-                         }
+newRGRef e = do r <- newIORef e
+                return (Wrap r)
 
 -- We'll be needing some witness of past values
 {-@ measure pastValue :: RGRef a -> a -> Prop @-}
 {-@ qualif PastValue(r:RGRef a, x:a): (pastValue r x) @-}
 {-@ measure terminalValue :: RGRef a -> a @-}
 {-@ qualif TerminalValue(r:RGRef a): (terminalValue r) @-}
+-- This is for carrying strong (identity) refinement into sharing/publication
+{-@ measure shareValue :: RGRef a -> a @-}
+{-@ qualif ShareValue(r:RGRef a): (shareValue r) @-}
 
 {-@ assume axiom_pastIsTerminal :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
                              ref:RGRef<p,r,g> a ->
@@ -136,10 +89,8 @@ injectStable ref v = liquidAssume undefined ref
 typecheck_pastval :: RGRef a -> a -> a
 typecheck_pastval x v = v
 
--- It would be nice if I could tie this to readIORefS, but there's no place to use liquidAssume to
--- invoke the axiom_rgpointsto
 {-@ assume readRGRef :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop, pre :: RealWorld -> Prop>.
-                    x:RGRef<p, r, g> a -> IO<pre, {\w v -> (rgpointsTo x w v)}> ({res:a<p> | (pastValue x res)}) @-}
+                    x:RGRef<p, r, g> a -> IO ({res:a<p> | (pastValue x res)}) @-}
 readRGRef (Wrap x) = readIORef x
 
 {-@ assume readRGRef2 :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop, pre :: RealWorld -> Prop>.
@@ -151,7 +102,7 @@ readRGRef2 (Wrap x) = readIORef x
                           x:(RGRef<p,r,g> a) -> 
                           old:a -> 
                           new:a<r old> -> 
-                          (IO<{\w -> (rgpointsTo x w old)}, {\w v -> (rgpointsTo x w new)}> ()) @-}
+                          (IO ()) @-}
 writeRGRef :: RGRef a -> a -> a -> IO ()
 writeRGRef  (Wrap x) old new = writeIORef x new
 
@@ -194,3 +145,25 @@ rgCAS (Wrap ptr) old new =
    atomicModifyIORef' ptr (\ cur -> if cur == old
                                    then (new, True)
                                    else (cur, False))
+
+{-@ rgCASpublish :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop, pb :: b -> Prop, rb :: b -> b -> Prop, gb :: b -> b -> Prop>.
+             {x::a<p> |- a<g x> <: a<p>}
+             {x::b<pb> |- b<rb x> <: b<pb>}
+             {x::b<pb> |- b<gb x> <: b<rb x>}
+             {x::b<pb> |- {v:b | v = x} <: b<gb x>}
+             Eq a =>
+             e:b<pb> ->
+             RGRef<p,r,g> a -> old:a<p> -> new:(({r:(RGRef<pb,rb,gb> b) | shareValue r = e}) -> a<g old>) ->
+             IO Bool
+@-}
+rgCASpublish :: Eq a => b -> RGRef a -> a -> (RGRef b -> a) -> IO Bool
+rgCASpublish e (Wrap ptr) old new =
+   do pub <- newRGRef e
+      atomicModifyIORef' ptr (\ cur -> if cur == old
+                                      then (new (liquidAssume (coerce pub e) pub), True)
+                                      else (cur, False))
+           where
+           {-@ assume coerce :: forall <pb :: b -> Prop, rb :: b -> b -> Prop, gb :: b -> b -> Prop>.
+                         r:RGRef<pb,rb,gb> b -> e:b -> {x:Bool | shareValue r = e} @-}
+           coerce :: RGRef b -> b -> Bool
+           coerce r e = undefined

@@ -37,3 +37,5 @@ Dependencies
 ------------
 Liquid Haskell version 0.3.0.0 or higher.  The version on Hackage (as of late Feb. 2015) should
 work.
+
+Last tested with Liquid Haskell version 0.3.1.0.

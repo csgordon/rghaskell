@@ -20,16 +20,6 @@ test :: ()
 test = generic_accept_stable proves_reflexivity
 
 
-{-@ test_axiom :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
-    ir:IORef a -> 
-    rr:{r:RGRef<p,r,g> a | ((rgref_ref r) = ir)} ->
-    v:a ->
-    w:{rw:RealWorld | (pointsTo ir rw v)} ->
-    {w2:RealWorld | (rgpointsTo (Wrap ir) w2 v)}
-@-}
-test_axiom :: IORef a -> RGRef a -> a -> RealWorld -> RealWorld
-test_axiom ir (Wrap rr) v w = liquidAssume (axiom_rgpointsTo rr w v) w
-
 {-@ coerce :: forall <p :: a -> Prop, r :: a -> a -> Prop >.
               f:(x:a<p> -> a<r x>) ->
               pf:(x:a<p> -> y:a<r x> -> {v:a<p> | (v = y)}) ->
