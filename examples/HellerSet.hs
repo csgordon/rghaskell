@@ -222,21 +222,13 @@ readPastValue x = readRGRef2 x
 terminal_listrg :: RGRef (Set a) -> Set a -> Set a -> Set a -> Set a
 terminal_listrg rf v x y = liquidAssume (isDelOnly x) y
 
-
-{-@ refine_val :: forall <m :: a -> Prop, q :: a -> Prop>.
-                  ref:RGRef<m,{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <q> a) ->
-                  x:a ->
-                  past:{v:Set <q> a | isNode v && pastValue ref v && x < val v} ->
-                  {ref2:RGRef<{\n -> x < val n },{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <q> a) | ref2 = ref} @-}
-refine_val :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
-refine_val ref x past = injectStable ref past
-
-{- hack :: forall <m :: a -> Prop, q :: a -> Prop>.
-                  ref:RGRef<m,{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <q> a) ->
-                  x:a ->
-                  {ref2:RGRef<{\n -> x < val n },{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <q> a) | ref2 = ref} -}
-hack :: RGRef (Set a) -> a -> RGRef (Set a)
-hack ref x = undefined
+{-@ downcast_set :: y:a -> 
+                    ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> y < v}> a) ->
+                    x:{x:a | x < y} ->
+                    {v:(Set <{\v -> x < v}> a) | pastValue ref v } ->
+                    {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> x < v}> a) | r = ref } @-}
+downcast_set :: a -> RGRef (Set a) -> a -> Set a -> RGRef (Set a)
+downcast_set y r x v = downcast r v
 
 insert :: Ord a => SetHandle a -> a -> IO Bool
 insert (SetHandle head _) x =
@@ -258,12 +250,14 @@ insert (SetHandle head _) x =
                      then go nextNode 
                      else --- insertion!  add between previous and current
                         case prevNode of
-                          Node prevVal vlb q -> do let _ = liquidAssert (x <= y) True
-                                                   let _ = liquidAssert (vlb <= y) True
-                                                   let _ = liquidAssert (prevVal <= y) True
-                                                   let _ = liquidAssert (prevVal <= x) True
-                                                   let _ = liquidAssert (x < y) True
-                                                   let _ = liquidAssert (x < myval curNode) True
+                          Node prevVal vlb q -> do let a = liquidAssert (x <= y) True
+                                                   let b = liquidAssert (vlb <= y) a
+                                                   let c = liquidAssert (prevVal <= y) b
+                                                   let d = liquidAssert (prevVal <= x) c
+                                                   let e = liquidAssert (x < y) d
+                                                   let f = liquidAssert (x < myval curNode) e
+                                                   let g = liquidAssert (q == curPtr) f
+                                                   let h = liquidAssert (False) g
                                                    -- #1
                                                    -- So we know curNode :: Set<{\v-> x < v},...,...>
                                                    -- but the type system only infers x<y, and
@@ -274,10 +268,16 @@ insert (SetHandle head _) x =
                                                    -- We're trying to push this into the ref
                                                    -- refinement, since it should get desugared to
                                                    -- the same thing 
-                                                   --let curPtr2 = injectStable curPtr curNode
-                                                   --let curPtr2 = refine_val curPtr x curNode
-                                                   --let curPtr2 = hack curPtr x
-                                                   let newNode = (Node x x curPtr)
+                                                   -- we have curNode::Set<{\v -> vlb < v}>, and
+                                                   -- myval curNode == y
+                                                   -- Seems overly restrictive to require x < vlb
+                                                   -- here.  It's sort of implicit from the
+                                                   -- pastValue requirement on downcast(_set).
+                                                   -- Maybe lift that.  Still stuck on getting
+                                                   -- curNode's type related to x, but I think this
+                                                   -- is the right track.
+                                                   let curPtrC = downcast_set vlb curPtr x curNode
+                                                   let newNode = liquidAssert h (Node x x curPtrC)
                                                    -- #2 and apparently also because it can't prove
                                                    -- prevVal <= x.  Need to refine type of go for
                                                    -- lb?  
@@ -286,7 +286,7 @@ insert (SetHandle head _) x =
                           Head _ -> do let newNode = (Node x x curPtr)
                                        b <- rgCASpublish newNode prevPtr prevNode (\ptr -> Head ptr)
                                        if b then return True else go prevPtr
-                          DelNode _ _ _ -> go startPtr --undefined -- TODO: go startPtr -- predecessor deleted, try again
+                          DelNode _ _ _ -> undefined -- TODO: go startPtr -- predecessor deleted, try again
              Null -> -- TODO insert at end... subset of previous case
                      undefined
              DelNode v lb nextNode -> 
@@ -307,12 +307,6 @@ find (SetHandle head _) x =
                 RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) -> IO Bool @-}
       go !prevPtr =
            do prevNode <-  readRGRef2 prevPtr
-              --prevNode2 <- readRGRef2 prevPtr
-              readRGRef2 prevPtr >>= (return . (typecheck_pastval prevPtr))
-              _ <- return (typecheck_pastval prevPtr prevNode)
-              --_ <- return (typecheck_pastval prevPtr prevNode2)
-              -- !!! What's the <p> parameter on curPtr's Set?  Looking at the HTML hovers, it looks
-              -- like it's True rather than anything about a bound relating it do prevNode...
               let curPtr = myNext prevNode -- head/node/delnode have all next
               curNode <- forgetIOTriple (readRGRef curPtr)
               case curNode of
@@ -328,12 +322,6 @@ find (SetHandle head _) x =
                         case prevNode of
                           Node prevVal vlb q -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) (nextNode))
                                                    let _ = liquidAssert (q == curPtr) True
-                                                   --let comp = liquidAssertB (prevVal < v)
-                                                   -- TODO: using liquidAssume (prevVal < v) discharges the
-                                                   -- refinement, but seems to feed back to the
-                                                   -- liquidAssert above, too.  That's... bad.  but
-                                                   -- at least I know I'm trying to prove the right
-                                                   -- thing.
                                                    b <- rgSetCAS prevPtr prevNode (Node prevVal (liquidAssert (prevVal < v) lb) (refinedtail))
                                                    if b then go prevPtr else go curPtr
                           Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
@@ -373,8 +361,6 @@ delete (SetHandle head _) x =
                                        if b then go prevPtr else go curPtr
                           DelNode _ _ _ -> go curPtr    -- if parent deleted simply move ahead
 
-  --in do startPtr <- readIORef head
-  --      go startPtr
 
 
 

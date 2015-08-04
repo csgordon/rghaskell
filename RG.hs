@@ -3,6 +3,7 @@ module RG where
 import Language.Haskell.Liquid.Prelude
 import Data.IORef as R
 import GHC.Base
+import Unsafe.Coerce
 
 {- This is the main implementation of rgref primitives -}
 
@@ -81,6 +82,16 @@ axiom_pastIsTerminal = undefined
 injectStable :: RGRef a -> a -> RGRef a
 injectStable ref v = liquidAssume undefined ref
 -- TODO: Can we do the above without undefined? it gives a warning...
+
+{-@ assume downcast :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
+                { x::b |- b <: a }
+                { x::b |- a<r x> <: b<p> }
+                ref:RGRef<p,r,g> a ->
+                {v:b | pastValue ref v } ->
+                {r : RGRef<p,r,g> b | ref = r } @-}
+downcast :: RGRef a -> b -> RGRef b
+downcast r v = unsafeCoerce r
+
 
 {-@ assume typecheck_pastval :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
                                 x:RGRef<p,r,g> a ->
