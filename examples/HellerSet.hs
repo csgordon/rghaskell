@@ -79,7 +79,7 @@ data Set a = Node a a (UNPACK(RGRef (Set a)))
             | Null
             | Head (UNPACK(RGRef (Set a))) deriving Eq
 
-{-@ data SetHandle a = SetHandle (lh_head :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a)))
+{-@ data SetHandle a = SetHandle (lh_head :: IORef (RGRef<{\x -> isHead x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a)))
                                  (lh_tail :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a))) @-}
 data SetHandle a = SetHandle (UNPACK(IORef (RGRef (Set a))))
                              (UNPACK(IORef (RGRef (Set a))))
@@ -222,13 +222,21 @@ readPastValue x = readRGRef2 x
 terminal_listrg :: RGRef (Set a) -> Set a -> Set a -> Set a -> Set a
 terminal_listrg rf v x y = liquidAssume (isDelOnly x) y
 
-{-@ downcast_set :: y:a -> 
-                    ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> y < v}> a) ->
-                    x:{x:a | x < y} ->
-                    {v:(Set <{\v -> x < v}> a) | pastValue ref v } ->
+{-@ downcast_set :: forall <p :: a -> Prop>. 
+                    ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) ->
+                    x:a ->
+                    {v:(Set <p> a) | pastValue ref v && x < val v } ->
                     {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> x < v}> a) | r = ref } @-}
-downcast_set :: a -> RGRef (Set a) -> a -> Set a -> RGRef (Set a)
-downcast_set y r x v = downcast r v
+downcast_set :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
+downcast_set r x v = downcast r v
+
+{-@ prove_lb :: forall <z :: a -> Prop>.
+             ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) ->
+             x:a ->
+             {n:(Set <z> a) | pastValue ref n && val n < x } ->
+             {r:RGRef<{\n -> val n < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) | r = ref } @-}
+prove_lb :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
+prove_lb ref x v = injectStable ref v
 
 insert :: Ord a => SetHandle a -> a -> IO Bool
 insert (SetHandle head _) x =
@@ -236,7 +244,7 @@ insert (SetHandle head _) x =
      go startPtr
   where
      {-@ go :: forall <p :: a -> Prop >.
-               RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) -> IO Bool @-}
+               RGRef<{\nd -> isHead nd || val nd < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) -> IO Bool @-}
      go !prevPtr =
         do prevNode <- readRGRef2 prevPtr
            -- note this next line skips over the head 
@@ -247,7 +255,7 @@ insert (SetHandle head _) x =
                 if x == y
                 then return False --- already present, not added
                 else if y < x
-                     then go nextNode 
+                     then go (prove_lb curPtr x curNode)
                      else --- insertion!  add between previous and current
                         case prevNode of
                           Node prevVal vlb q -> do let a = liquidAssert (x <= y) True
@@ -276,18 +284,25 @@ insert (SetHandle head _) x =
                                                    -- Maybe lift that.  Still stuck on getting
                                                    -- curNode's type related to x, but I think this
                                                    -- is the right track.
-                                                   let curPtrC = downcast_set vlb curPtr x curNode
+                                                   let curPtrC = downcast_set curPtr x curNode
+                                                   --let curPtrC = downcast_set vlb curPtr x (Node y lb nextNode)
                                                    let newNode = liquidAssert h (Node x x curPtrC)
                                                    -- #2 and apparently also because it can't prove
                                                    -- prevVal <= x.  Need to refine type of go for
                                                    -- lb?  
+                                                   -- Can probably use the predicate on the RGRef to
+                                                   -- refine the arg to go to point to a Head or
+                                                   -- something with a val < x, which would then
+                                                   -- imply prevVal < x here.  Since it's just the
+                                                   -- rgref pred, not a datatype index, can use
+                                                   -- injectStable instead of the downcast machinery
                                                    b <- rgCASpublish newNode prevPtr prevNode (\ptr -> Node prevVal prevVal ptr)
                                                    if b then return True else go prevPtr
-                          Head _ -> do let newNode = (Node x x curPtr)
+                          Head _ -> do let newNode = (Node x x (downcast_set curPtr x curNode))
                                        b <- rgCASpublish newNode prevPtr prevNode (\ptr -> Head ptr)
                                        if b then return True else go prevPtr
                           DelNode _ _ _ -> undefined -- TODO: go startPtr -- predecessor deleted, try again
-             Null -> -- TODO insert at end... subset of previous case
+             Null -> -- TODO insert at end... subset of previous case.  basically duplicate match on prevNode from curNode success case
                      undefined
              DelNode v lb nextNode -> 
                      case prevNode of
@@ -297,6 +312,7 @@ insert (SetHandle head _) x =
                        Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                     if b then go prevPtr else go curPtr
                        DelNode _ _ _ -> go curPtr    -- if parent deleted simply move ahead
+
 
 find :: Ord a => SetHandle a -> a -> IO Bool
 find (SetHandle head _) x =
