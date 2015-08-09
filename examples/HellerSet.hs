@@ -141,7 +141,11 @@ myval (DelNode v lb n) = v
 {-@ assume isDelOnly :: x:Set a -> 
                         {v:Bool | ((isDel x) <=> ((not (isHead x)) && (not (isNull x)) && (not (isNode x))))} @-}
 isDelOnly :: Set a -> Bool
-isDelOnly x = undefined
+isDelOnly x = True
+{-@ assume isNodeOnly :: x:Set a -> 
+                        {v:Bool | ((isNode x) <=> ((not (isHead x)) && (not (isNull x)) && (not (isDel x))))} @-}
+isNodeOnly :: Set a -> Bool
+isNodeOnly x = True
 
 -- we assume a static head pointer, pointing to the first node which must be Head
 -- the deleted field of Head is always False, it's only there to make some of the code
@@ -238,13 +242,27 @@ downcast_set r x v = downcast r v
 downcast_set_null :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
 downcast_set_null r x v = downcast r v
 
+{-@ valnode_stable :: forall <q :: a -> Prop>.
+                      x:a ->
+                      v1:{v:Set<q> a | (isNode v || isDel v) && (val v < x) } ->
+                      v2:{v:Set<q> a | SetRG v1 v } ->
+                      {v:Set<q> a | (isNode v || isDel v) && (val v < x) && (v = v2) } @-}
+valnode_stable :: a -> Set a -> Set a -> Set a
+valnode_stable x v1 v2 = liquidAssume (isDelOnly v1) (liquidAssume (isNodeOnly v1) v2)
+-- ^^ could maybe drop the isnode|isdel refinement above if I also injected exclusions for head and
+-- null nodes...
+
 {-@ prove_lb :: forall <z :: a -> Prop>.
              ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) ->
              x:a ->
-             {n:(Set <z> a) | pastValue ref n && (val n < x) && (isNode n) } ->
-             {r:RGRef<{\n -> val n < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) | r = ref } @-}
+             {n:(Set <z> a)<{\s -> val s < x}> | (isNode n || isDel n) && (pastValue ref n) } ->
+             {r:RGRef<{\n -> (isNode n || isDel n) && val n < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) | r = ref } @-}
 prove_lb :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
-prove_lb ref x v = injectStable ref v
+prove_lb ref x v = (injectStable ref (v))
+--prove_lb ref x v = (injectStable2 (valnode_stable x) ref (v))
+-- Above, the q parameter to injectStable seems to be getting chosen as [SetRG v] or [\_-> 1 > 0]
+-- depending on whether or not I fully apply injectStable...  can maybe fix by taking explicit
+-- stability proof argument like I used to
   --where
   --  {- help :: forall <q :: a -> Prop>.
   --           ref2:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <q> a) ->
