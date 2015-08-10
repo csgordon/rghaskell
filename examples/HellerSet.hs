@@ -41,12 +41,12 @@ import Language.Haskell.Liquid.Prelude
 -- that a cell has become deleted, I could actually enforce the correct management of next pointers
 -- on deletion.
 {-@ predicate SetRG X Y =
-    (((isNull X) && (isNode Y)) ||
-     ((isNode X) && (isDel Y) && ((val X) = (val Y)) && ((nxt X) = (nxt Y))) ||
-     ((isNode X) && (isNode Y) && (isDel (terminalValue (nxt X))) && ((val X) = (val Y)) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
-     ((isHead X) && (isHead Y) && (isDel (terminalValue (nxt X))) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
-     ((isNode X) && (isNode Y) && ((val X) = (val Y)) && (nxt X = nxt (shareValue (nxt Y)))) ||
-     ((isHead X) && (isHead Y) && (nxt X = nxt (shareValue (nxt Y)))) ||
+    (((IsNull X) && (IsNode Y)) ||
+     ((IsNode X) && (IsDel Y) && ((val X) = (val Y)) && ((nxt X) = (nxt Y))) ||
+     ((IsNode X) && (IsNode Y) && (IsDel (terminalValue (nxt X))) && ((val X) = (val Y)) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
+     ((IsHead X) && (IsHead Y) && (IsDel (terminalValue (nxt X))) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
+     ((IsNode X) && (IsNode Y) && ((val X) = (val Y)) && (nxt X = nxt (shareValue (nxt Y)))) ||
+     ((IsHead X) && (IsHead Y) && (nxt X = nxt (shareValue (nxt Y)))) ||
      (X = Y)
      )
 @-}
@@ -79,14 +79,14 @@ data Set a = Node a a (UNPACK(RGRef (Set a)))
             | Null
             | Head (UNPACK(RGRef (Set a))) deriving Eq
 
-{-@ data SetHandle a = SetHandle (lh_head :: IORef (RGRef<{\x -> isHead x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a)))
+{-@ data SetHandle a = SetHandle (lh_head :: IORef (RGRef<{\x -> IsHead x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a)))
                                  (lh_tail :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a))) @-}
 data SetHandle a = SetHandle (UNPACK(IORef (RGRef (Set a))))
                              (UNPACK(IORef (RGRef (Set a))))
 
 {-# INLINE myNext #-}
 {-@ myNext :: l:Set a -> 
-              {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> ((isHead l) || (slack l < x))}> a) |
+              {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> ((IsHead l) || (slack l < x))}> a) |
                    ((nxt l) = r) }
 @-}
 myNext :: Set a -> RGRef (Set a)
@@ -100,50 +100,60 @@ myNext _ = error "myNext"
 -- LH seems fine with incomplete pattern matches here,
 -- which is great.  It means fewer refinements are added
 -- to each constructor, making a lot less work for inference and SMT.
+{-@ measure nodeclass :: Set a -> Int
+    nodeclass (Head n) = 0
+    nodeclass (Node v lb n) = 1
+    nodeclass (DelNode v lb n) = 2
+    nodeclass (Null) = 3
+    @-}
+{-@ predicate IsHead X = (nodeclass X = 0) @-}
+{-@ predicate IsNode X = (nodeclass X = 1) @-}
+{-@ predicate IsDel X  = (nodeclass X = 2) @-}
+{-@ predicate IsNull X = (nodeclass X = 3) @-}
 {-@ measure nxt :: Set a -> (RGRef (Set a))
     nxt (Node v lb n) = n
     nxt (DelNode v lb n) = n
     nxt (Head n) = n
 @-}
-{-@ measure isHead :: Set a -> Prop
-    isHead (Head n) = true
-    isHead (Node v lb n) = false
-    isHead (DelNode v lb n) = false
-    isHead (Null) = false
-@-}
-{-@ measure isNode :: Set a -> Prop
-    isNode (Node v lb n) = true
-    isNode (DelNode v lb n) = false
-    isNode (Null) = false
-    isNode (Head n) = false
-@-}
+{- measure IsHead :: Set a -> Prop
+    IsHead (Head n) = true
+    IsHead (Node v lb n) = false
+    IsHead (DelNode v lb n) = false
+    IsHead (Null) = false
+-}
+{- measure IsNode :: Set a -> Prop
+    IsNode (Node v lb n) = true
+    IsNode (DelNode v lb n) = false
+    IsNode (Null) = false
+    IsNode (Head n) = false
+-}
 {-@ measure val :: Set a -> a
     val (Node v lb n) = v
     val (DelNode v lb n) = v
 @-}
-{-@ myval :: x:Set a -> {v:a | v = val x} @-}
+{-@ myval :: x:{x:Set a | IsNode x || IsDel x } -> {v:a | v = val x} @-}
 myval (Node v lb n) = v
 myval (DelNode v lb n) = v
-{-@ measure isDel :: Set a -> Prop
-    isDel (DelNode v lb n) = true
-    isDel (Null) = false
-    isDel (Head n) = false
-    isDel (Node v lb n) = false
-@-}
-{-@ measure isNull :: Set a -> Prop
-    isNull (Null) = true
-    isNull (Head n) = false
-    isNull (Node v lb n) = false
-    isNull (DelNode v lb n) = false
-@-}
+{- measure IsDel :: Set a -> Prop
+    IsDel (DelNode v lb n) = true
+    IsDel (Null) = false
+    IsDel (Head n) = false
+    IsDel (Node v lb n) = false
+-}
+{- measure IsNull :: Set a -> Prop
+    IsNull (Null) = true
+    IsNull (Head n) = false
+    IsNull (Node v lb n) = false
+    IsNull (DelNode v lb n) = false
+-}
 -- A cleaner to show the SMT these predicates are disjoint may be to redefine them as predicates on
 -- another measure mapping nodes to some SetTypeEnum...
 {-@ assume isDelOnly :: x:Set a -> 
-                        {v:Bool | ((isDel x) <=> ((not (isHead x)) && (not (isNull x)) && (not (isNode x))))} @-}
+                        {v:Bool | ((IsDel x) <=> ((not (IsHead x)) && (not (IsNull x)) && (not (IsNode x))))} @-}
 isDelOnly :: Set a -> Bool
 isDelOnly x = True
 {-@ assume isNodeOnly :: x:Set a -> 
-                        {v:Bool | ((isNode x) <=> ((not (isHead x)) && (not (isNull x)) && (not (isDel x))))} @-}
+                        {v:Bool | ((IsNode x) <=> ((not (IsHead x)) && (not (IsNull x)) && (not (IsDel x))))} @-}
 isNodeOnly :: Set a -> Bool
 isNodeOnly x = True
 
@@ -221,7 +231,7 @@ readPastValue :: RGRef (Set a) -> IO (Set a)
 readPastValue x = readRGRef2 x
 
 
-{-@ terminal_listrg :: rf:InteriorPtr a -> v:{v:Set a | (isDel v)}->
+{-@ terminal_listrg :: rf:InteriorPtr a -> v:{v:Set a | (IsDel v)}->
                        x:{x:Set a | (x = v)} ->y:{y:Set a | (SetRG x y)} -> {z:Set a | ((x = z) && (z = y))} @-}
 terminal_listrg :: RGRef (Set a) -> Set a -> Set a -> Set a -> Set a
 terminal_listrg rf v x y = liquidAssume (isDelOnly x) y
@@ -237,16 +247,16 @@ downcast_set r x v = downcast r v
 {-@ downcast_set_null :: forall <p :: a -> Prop>. 
                     ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) ->
                     x:a ->
-                    {v:(Set <p> a) | pastValue ref v && isNull v } ->
+                    {v:(Set <p> a) | pastValue ref v && IsNull v } ->
                     {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> x < v}> a) | r = ref } @-}
 downcast_set_null :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
 downcast_set_null r x v = downcast r v
 
 {-@ valnode_stable :: forall <q :: a -> Prop>.
                       x:a ->
-                      v1:{v:Set<q> a | (isNode v || isDel v) && (val v < x) } ->
+                      v1:{v:Set<q> a | (IsNode v || IsDel v) && (val v < x) } ->
                       v2:{v:Set<q> a | SetRG v1 v } ->
-                      {v:Set<q> a | (isNode v || isDel v) && (val v < x) && (v = v2) } @-}
+                      {v:Set<q> a | (IsNode v || IsDel v) && (val v < x) && (v = v2) } @-}
 valnode_stable :: a -> Set a -> Set a -> Set a
 valnode_stable x v1 v2 = liquidAssume (isDelOnly v1) (liquidAssume (isNodeOnly v1) v2)
 -- ^^ could maybe drop the isnode|isdel refinement above if I also injected exclusions for head and
@@ -255,8 +265,8 @@ valnode_stable x v1 v2 = liquidAssume (isDelOnly v1) (liquidAssume (isNodeOnly v
 {-@ prove_lb :: forall <z :: a -> Prop>.
              ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) ->
              x:a ->
-             {n:(Set <z> a)<{\s -> val s < x}> | (isNode n || isDel n) && (pastValue ref n) } ->
-             {r:RGRef<{\n -> (isNode n || isDel n) && val n < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) | r = ref } @-}
+             {n:(Set <z> a)<{\s -> val s < x}> | (IsNode n || IsDel n) && (pastValue ref n) } ->
+             {r:RGRef<{\n -> (IsNode n || IsDel n) && val n < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) | r = ref } @-}
 prove_lb :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
 prove_lb ref x v = (injectStable ref (v))
 --prove_lb ref x v = (injectStable2 (valnode_stable x) ref (v))
@@ -266,10 +276,46 @@ prove_lb ref x v = (injectStable ref (v))
   --where
   --  {- help :: forall <q :: a -> Prop>.
   --           ref2:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <q> a) ->
-  --           {n2:(Set <q> a) | (pastValue ref2 n2) && (val n2 < x) && (isNode n2) } ->
+  --           {n2:(Set <q> a) | (pastValue ref2 n2) && (val n2 < x) && (IsNode n2) } ->
   --           {r2:RGRef<{\n -> val n < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <q> a) | r2 = ref2 } -}
   --  help :: RGRef (Set a) -> Set a -> RGRef (Set a)
   --  help = injectStable
+
+{-@ injectBound :: forall <z :: a -> Prop, s :: Set a -> Prop>.
+             { x::a |- (Set<z> a)<s> <: {v:Set<z> a | (IsNode v || IsDel v) && val v < x } }
+             {x::(Set<z> a)<s> |- (Set<z> a)<SetRG x> <: (Set<z> a)<s>}
+             ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) ->
+             x:a ->
+             {n:(Set<z> a)<s> | pastValue ref n} ->
+             {r:RGRef<s,{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) | r = ref } @-}
+injectBound :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
+injectBound ref x n = injectStable ref (liquidAssume (isDelOnly n) (liquidAssume (isNodeOnly n) n))
+                   
+-- When this is Int, it works.  When we use Set Int, it fails, giving a message that includes the
+-- body of SetRG even though it's not explicitly here... something's up with the recursive pointer
+{-@ injectStable3 :: forall <p :: (Set Int) -> Prop, 
+                                         q :: (Set Int) -> Prop,
+                                         r :: (Set Int) -> (Set Int) -> Prop,
+                                         g :: (Set Int) -> (Set Int) -> Prop,
+                                         z :: Int -> Prop>.
+                    {x::(Set <z> Int)<q> |- (Set <z> Int)<r x> <: (Set <z> Int)<q>}
+                    ref:RGRef<p,r,g> (Set <z> Int) ->
+                    {v:(Set <z> Int)<q> | (pastValue ref v)} ->
+                    {r : (RGRef<q,r,g> (Set <z> Int)) | (ref = r)} @-}
+injectStable3 :: RGRef (Set Int) -> (Set Int) -> RGRef (Set Int)
+injectStable3 ref v = injectStable ref v
+
+{-@ injectExplicit :: forall <p :: (Set Int) -> Prop, 
+                                         q :: (Set Int) -> Prop,
+                                         r :: (Set Int) -> (Set Int) -> Prop,
+                                         g :: (Set Int) -> (Set Int) -> Prop>.
+                    pf:(j:(Set Int)<q> -> k:(Set Int)<r j> -> {z:(Set Int)<q> | z = k}) ->
+                    ref:RGRef<p,r,g> (Set Int) ->
+                    {v:(Set Int)<q> | (pastValue ref v)} ->
+                    {r : (RGRef<q,r,g> (Set Int)) | (ref = r)} @-}
+injectExplicit :: ((Set Int) -> (Set Int) -> (Set Int)) -> RGRef (Set Int) -> (Set Int) -> RGRef (Set Int)
+injectExplicit pf ref v = injectStable2 pf ref v
+
 
 insert :: Ord a => SetHandle a -> a -> IO Bool
 insert (SetHandle head _) x =
@@ -279,7 +325,7 @@ insert (SetHandle head _) x =
      -- Note that the RGRef predicate ensures that we're at the start of the list or inserting x just
      -- after prevPtr will preserve sortedness up to that insertion.
      {-@ go :: forall <p :: a -> Prop >.
-               RGRef<{\nd -> isHead nd || val nd < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) -> IO Bool @-}
+               RGRef<{\nd -> IsHead nd || val nd < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) -> IO Bool @-}
      go !prevPtr =
         do prevNode <- readRGRef2 prevPtr
            -- note this next line skips over the head 

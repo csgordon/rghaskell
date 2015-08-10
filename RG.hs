@@ -82,6 +82,17 @@ axiom_pastIsTerminal = undefined
 injectStable :: RGRef a -> a -> RGRef a
 injectStable ref v = liquidAssume undefined ref
 -- TODO: Can we do the above without undefined? it gives a warning...
+{-@ assume injectStable2 :: forall <p :: a -> Prop, 
+                                         q :: a -> Prop,
+                                         r :: a -> a -> Prop,
+                                         g :: a -> a -> Prop>.
+                    pf:(j:a<q> -> k:a<r j> -> {z:a<q> | z = k}) ->
+                    ref:RGRef<p,r,g> a ->
+                    {v:a<q> | (pastValue ref v)} ->
+                    {r : (RGRef<q,r,g> a) | (ref = r)} @-}
+injectStable2 :: (a -> a -> a) -> RGRef a -> a -> RGRef a
+injectStable2 pf ref v = liquidAssume undefined ref
+-- TODO: Can we do the above without undefined? it gives a warning...
 
                 -- { x::b |- b <: a }
 {-@ assume downcast :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
