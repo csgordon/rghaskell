@@ -51,12 +51,9 @@ newRGRef e = do r <- newIORef e
 
 -- We'll be needing some witness of past values
 {-@ measure pastValue :: RGRef a -> a -> Prop @-}
-{-@ qualif PastValue(r:RGRef a, x:a): (pastValue r x) @-}
 {-@ measure terminalValue :: RGRef a -> a @-}
-{-@ qualif TerminalValue(r:RGRef a): (terminalValue r) @-}
 -- This is for carrying strong (identity) refinement into sharing/publication
 {-@ measure shareValue :: RGRef a -> a @-}
-{-@ qualif ShareValue(r:RGRef a): (shareValue r) @-}
 
 {-@ assume axiom_pastIsTerminal :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
                              ref:RGRef<p,r,g> a ->
