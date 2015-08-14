@@ -35,7 +35,7 @@ and being a refinement of a language with real programs!  The main simplificatio
 
 Dependencies
 ------------
-Liquid Haskell version 0.3.0.0 or higher.  The version on Hackage (as of late Feb. 2015) should
-work.
+Last tested with:
 
-Last tested with Liquid Haskell version 0.3.1.0.
+* ucsd-progsys/liquid-fixpoint@105972be489089b9079328ce0772729efefd06b8
+* ucsd-progsys/liquidhaskell@9c0cad2ca624b899697da396c145f487edb0654b
