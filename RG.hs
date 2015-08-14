@@ -186,3 +186,11 @@ rgCASpublish e (Wrap ptr) old new =
                          r:RGRef<pb,rb,gb> b -> e:b -> {x:Bool | shareValue r = e} @-}
            coerce :: RGRef b -> b -> Bool
            coerce r e = undefined
+
+{-@ assume safe_covar :: forall <p :: a -> Prop, r :: a -> a -> Prop, g :: a -> a -> Prop>.
+                { x::a |- a <: b }
+                { x::a<p> |- a<g x> <: b }
+                ref:RGRef<p,r,g> a ->
+                {r : RGRef<p,r,g> b | ref = r } @-}
+safe_covar :: RGRef a -> RGRef b
+safe_covar r = unsafeCoerce r
