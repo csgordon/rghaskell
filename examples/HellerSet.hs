@@ -236,6 +236,20 @@ readPastValue x = readRGRef2 x
 terminal_listrg :: RGRef (Set a) -> Set a -> Set a -> Set a -> Set a
 terminal_listrg rf v x y = liquidAssume (isDelOnly x) y
 
+-- This is a manual instatiation of injectStable for a polymorphic Set<z> a.  LH SHOULD be able to infer
+-- this as an instantiation, but for some reason does not.  We shouldn't need this axiom.
+{-@ assume injectStableSet :: forall <p :: (Set a) -> Prop, 
+                                   q :: (Set a) -> Prop,
+                                   r :: (Set a) -> (Set a) -> Prop,
+                                   g :: (Set a) -> (Set a) -> Prop,
+                                   z :: a -> Prop>.
+                    {x::(Set<z> a)<q> |- (Set<z> a)<r x> <: (Set<z> a)<q>}
+                    ref:RGRef<p,r,g> (Set<z> a) ->
+                    {v:(Set<z> a)<q> | (pastValue ref v)} ->
+                    {r : (RGRef<q,r,g> (Set<z> a)) | (ref = r)} @-}
+injectStableSet :: RGRef (Set a) -> (Set a) -> RGRef (Set a)
+injectStableSet ref v = liquidAssume undefined ref
+
 {-@ downcast_set :: forall <p :: a -> Prop>. 
                     ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) ->
                     x:a ->
@@ -268,7 +282,7 @@ valnode_stable x v1 v2 = liquidAssume (isDelOnly v1) (liquidAssume (isNodeOnly v
              {n:(Set <z> a)<{\s -> val s < x}> | (IsNode n || IsDel n) && (pastValue ref n) } ->
              {r:RGRef<{\n -> (IsNode n || IsDel n) && val n < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) | r = ref } @-}
 prove_lb :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
-prove_lb ref x v = (injectStable ref (v))
+prove_lb ref x v = (injectStableSet ref (v))
 --prove_lb ref x v = (injectStable2 (valnode_stable x) ref (v))
 -- Above, the q parameter to injectStable seems to be getting chosen as [SetRG v] or [\_-> 1 > 0]
 -- depending on whether or not I fully apply injectStable...  can maybe fix by taking explicit
@@ -369,7 +383,7 @@ find (SetHandle head _) x =
                         case prevNode of
                           Node prevVal vlb q -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) (nextNode))
                                                    let _ = liquidAssert (q == curPtr) True
-                                                   b <- rgSetCAS prevPtr prevNode (Node prevVal (liquidAssert (prevVal < v) lb) (refinedtail))
+                                                   b <- rgSetCAS prevPtr prevNode (Node prevVal vlb (safe_covar refinedtail))
                                                    if b then go prevPtr else go curPtr
                           Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
@@ -401,7 +415,8 @@ delete (SetHandle head _) x =
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node v2 v2lb _ -> do b <- rgSetCAS prevPtr prevNode (Node v2 lb (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                          Node v2 v2lb _ -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode)
+                                               b <- rgSetCAS prevPtr prevNode (Node v2 v2lb (safe_covar refinedtail))
                                                if b then go prevPtr else go curPtr
                           --Head {} -> do b <- rgSetCAS prevPtr prevNode (Head nextNode)
                           Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
