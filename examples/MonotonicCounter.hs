@@ -11,15 +11,6 @@ alloc_counter _ = newRGRef 1
 inc_counter :: RGRef Int -> IO ()
 inc_counter r = modifyRGRef r (\x -> x + 1)
 
-{-@ storeOneMore :: r:RGRef<{\x -> x > 0}, {\x y -> x <= y}, {\x y -> x <= y}> Int ->
-                    v:Int ->
-                    (exists[v2:Int].
-                    (IO<{\w -> (rgpointsTo r w v)}, {\w q -> ((v2 = v + 1) && (rgpointsTo r w v2))}> ())) @-}
-                    -- Changing second refinement to rgpointsTo r w (v+1) as it should be gives a
-                    -- parse error
-storeOneMore :: RGRef Int -> Int -> IO ()
-storeOneMore r v = writeRGRef r v (v+1)
-
 -- Once we get bindIO working, give the bindIO and IO refinements a workout
 {- inc_counter2 :: r:RGRef<{\x -> x > 0}, {\x y -> x <= y}, {\x y -> x <= y}> Int -> exists[x:Int].(IO<{\w -> (true)},{\w v -> (rgpointsTo r w x)}> ()) @-}
 --inc_counter2 :: RGRef Int -> IO ()

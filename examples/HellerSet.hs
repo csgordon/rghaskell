@@ -31,6 +31,8 @@ import Language.Haskell.Liquid.Prelude
 -- 2. [Logical Deletion] Replacing a Node with a DelNode, preserving the next ptr
 -- 3. [Physical Deletion at Node] Replacing a (Node v x) with (Node v y) if x points to (DelNode _ y) (see below)
 -- 4. [Physical Deletion at Head] Bumping a Head node's next to the second node (this is a deletion, but I think there's an opt
+-- 5. [Insertion at Node]
+-- 6. [Insertion at Head]
 -- in the delete code that skips the Node -> DelNode transition)
 -- Deletion occurs not by replacing a DelNode with something else, but by replacing a Node pointing
 -- to a DelNode with a given next pointer with a Node having the same value, and updated (bumped
@@ -39,17 +41,19 @@ import Language.Haskell.Liquid.Prelude
 -- that a cell has become deleted, I could actually enforce the correct management of next pointers
 -- on deletion.
 {-@ predicate SetRG X Y =
-    (((isNull X) && (isNode Y)) ||
-     ((isNode X) && (isDel Y) && ((val X) = (val Y)) && ((nxt X) = (nxt Y))) ||
-     ((isNode X) && (isNode Y) && (isDel (terminalValue (nxt X))) && ((val X) = (val Y)) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
-     ((isHead X) && (isHead Y) && (isDel (terminalValue (nxt X))) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
+    (((IsNull X) && (IsNode Y)) ||
+     ((IsNode X) && (IsDel Y) && ((val X) = (val Y)) && ((nxt X) = (nxt Y))) ||
+     ((IsNode X) && (IsNode Y) && (IsDel (terminalValue (nxt X))) && ((val X) = (val Y)) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
+     ((IsHead X) && (IsHead Y) && (IsDel (terminalValue (nxt X))) && ((nxt (terminalValue (nxt X))) = (nxt Y))) ||
+     ((IsNode X) && (IsNode Y) && ((val X) = (val Y)) && (nxt X = nxt (shareValue (nxt Y)))) ||
+     ((IsHead X) && (IsHead Y) && (nxt X = nxt (shareValue (nxt Y)))) ||
      (X = Y)
      )
 @-}
 -- Also, note the progression of values a given NextPtr points to:
 --     a) Null ->
 --     b) Node x n ->
---     c) Node x n' -> (where n pointed to (DelNode n')); repeat b->c indefinitely
+--     c) Node x n' -> (where n pointed to (DelNode n') or an insertion occurred); repeat b->c indefinitely
 --     c) DelNode x n' ->
 --     d) [disconnected]
 
@@ -75,14 +79,14 @@ data Set a = Node a a (UNPACK(RGRef (Set a)))
             | Null
             | Head (UNPACK(RGRef (Set a))) deriving Eq
 
-{-@ data SetHandle a = SetHandle (lh_head :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a)))
+{-@ data SetHandle a = SetHandle (lh_head :: IORef (RGRef<{\x -> IsHead x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a)))
                                  (lh_tail :: IORef (RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a))) @-}
 data SetHandle a = SetHandle (UNPACK(IORef (RGRef (Set a))))
                              (UNPACK(IORef (RGRef (Set a))))
 
 {-# INLINE myNext #-}
 {-@ myNext :: l:Set a -> 
-              {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> ((isHead l) || (slack l < x))}> a) |
+              {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\x -> ((IsHead l) || (slack l < x))}> a) |
                    ((nxt l) = r) }
 @-}
 myNext :: Set a -> RGRef (Set a)
@@ -96,45 +100,62 @@ myNext _ = error "myNext"
 -- LH seems fine with incomplete pattern matches here,
 -- which is great.  It means fewer refinements are added
 -- to each constructor, making a lot less work for inference and SMT.
+{-@ measure nodeclass :: Set a -> Int
+    nodeclass (Head n) = 0
+    nodeclass (Node v lb n) = 1
+    nodeclass (DelNode v lb n) = 2
+    nodeclass (Null) = 3
+    @-}
+{-@ predicate IsHead X = (nodeclass X = 0) @-}
+{-@ predicate IsNode X = (nodeclass X = 1) @-}
+{-@ predicate IsDel X  = (nodeclass X = 2) @-}
+{-@ predicate IsNull X = (nodeclass X = 3) @-}
 {-@ measure nxt :: Set a -> (RGRef (Set a))
     nxt (Node v lb n) = n
     nxt (DelNode v lb n) = n
     nxt (Head n) = n
 @-}
-{-@ measure isHead :: Set a -> Prop
-    isHead (Head n) = true
-    isHead (Node v lb n) = false
-    isHead (DelNode v lb n) = false
-    isHead (Null) = false
-@-}
-{-@ measure isNode :: Set a -> Prop
-    isNode (Node v lb n) = true
-    isNode (DelNode v lb n) = false
-    isNode (Null) = false
-    isNode (Head n) = false
-@-}
+{- measure IsHead :: Set a -> Prop
+    IsHead (Head n) = true
+    IsHead (Node v lb n) = false
+    IsHead (DelNode v lb n) = false
+    IsHead (Null) = false
+-}
+{- measure IsNode :: Set a -> Prop
+    IsNode (Node v lb n) = true
+    IsNode (DelNode v lb n) = false
+    IsNode (Null) = false
+    IsNode (Head n) = false
+-}
 {-@ measure val :: Set a -> a
     val (Node v lb n) = v
     val (DelNode v lb n) = v
 @-}
-{-@ measure isDel :: Set a -> Prop
-    isDel (DelNode v lb n) = true
-    isDel (Null) = false
-    isDel (Head n) = false
-    isDel (Node v lb n) = false
-@-}
-{-@ measure isNull :: Set a -> Prop
-    isNull (Null) = true
-    isNull (Head n) = false
-    isNull (Node v lb n) = false
-    isNull (DelNode v lb n) = false
-@-}
+{-@ myval :: x:{x:Set a | IsNode x || IsDel x } -> {v:a | v = val x} @-}
+myval (Node v lb n) = v
+myval (DelNode v lb n) = v
+{- measure IsDel :: Set a -> Prop
+    IsDel (DelNode v lb n) = true
+    IsDel (Null) = false
+    IsDel (Head n) = false
+    IsDel (Node v lb n) = false
+-}
+{- measure IsNull :: Set a -> Prop
+    IsNull (Null) = true
+    IsNull (Head n) = false
+    IsNull (Node v lb n) = false
+    IsNull (DelNode v lb n) = false
+-}
 -- A cleaner to show the SMT these predicates are disjoint may be to redefine them as predicates on
 -- another measure mapping nodes to some SetTypeEnum...
 {-@ assume isDelOnly :: x:Set a -> 
-                        {v:Bool | ((isDel x) <=> ((not (isHead x)) && (not (isNull x)) && (not (isNode x))))} @-}
+                        {v:Bool | ((IsDel x) <=> ((not (IsHead x)) && (not (IsNull x)) && (not (IsNode x))))} @-}
 isDelOnly :: Set a -> Bool
-isDelOnly x = undefined
+isDelOnly x = True
+{-@ assume isNodeOnly :: x:Set a -> 
+                        {v:Bool | ((IsNode x) <=> ((not (IsHead x)) && (not (IsNull x)) && (not (IsDel x))))} @-}
+isNodeOnly :: Set a -> Bool
+isNodeOnly x = True
 
 -- we assume a static head pointer, pointing to the first node which must be Head
 -- the deleted field of Head is always False, it's only there to make some of the code
@@ -194,22 +215,6 @@ newSet =
       return (SetHandle hdPtr tailPtr)
 
 
--- we add a new node, by overwriting the null tail node
--- we only need to adjust tailSet but not headSet because
--- of the static Head
--- we return the location of the newly added node
-addToTail :: Eq a => SetHandle a -> a -> IO ()
-addToTail (SetHandle _ tailPtrPtr) x =
-   --do null <- let nm = Null in newRGRef nm nm any_stable_listrg
-   do null <- allocNull
-      repeatUntil 
-         (do tailPtr <- readIORef tailPtrPtr
-             b <- rgCAS tailPtr Null (Node x x null) --any_stable_listrg
-             return b )
-        -- we atomically update the tail
-        -- (by spinning on the tailPtr)
-      atomicWrite tailPtrPtr null
-
 -- Wrap rgCAS with the refinements made concrete, to help inference
 {-@ rgSetCAS :: Eq a =>
                  RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set a) ->
@@ -226,10 +231,133 @@ readPastValue :: RGRef (Set a) -> IO (Set a)
 readPastValue x = readRGRef2 x
 
 
-{-@ terminal_listrg :: rf:InteriorPtr a -> v:{v:Set a | (isDel v)}->
+{-@ terminal_listrg :: rf:InteriorPtr a -> v:{v:Set a | (IsDel v)}->
                        x:{x:Set a | (x = v)} ->y:{y:Set a | (SetRG x y)} -> {z:Set a | ((x = z) && (z = y))} @-}
 terminal_listrg :: RGRef (Set a) -> Set a -> Set a -> Set a -> Set a
 terminal_listrg rf v x y = liquidAssume (isDelOnly x) y
+
+-- This is a manual instatiation of injectStable for a polymorphic Set<z> a.  LH SHOULD be able to infer
+-- this as an instantiation, but for some reason does not.  We shouldn't need this axiom.
+{-@ assume injectStableSet :: forall <p :: (Set a) -> Prop, 
+                                   q :: (Set a) -> Prop,
+                                   r :: (Set a) -> (Set a) -> Prop,
+                                   g :: (Set a) -> (Set a) -> Prop,
+                                   z :: a -> Prop>.
+                    {x::(Set<z> a)<q> |- (Set<z> a)<r x> <: (Set<z> a)<q>}
+                    ref:RGRef<p,r,g> (Set<z> a) ->
+                    {v:(Set<z> a)<q> | (pastValue ref v)} ->
+                    {r : (RGRef<q,r,g> (Set<z> a)) | (ref = r)} @-}
+injectStableSet :: RGRef (Set a) -> (Set a) -> RGRef (Set a)
+injectStableSet ref v = liquidAssume undefined ref
+
+{-@ downcast_set :: forall <p :: a -> Prop>. 
+                    ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) ->
+                    x:a ->
+                    {v:(Set <p> a) | pastValue ref v && x < val v } ->
+                    {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> x < v}> a) | r = ref } @-}
+downcast_set :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
+downcast_set r x v = downcast r v
+
+{-@ downcast_set_null :: forall <p :: a -> Prop>. 
+                    ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) ->
+                    x:a ->
+                    {v:(Set <p> a) | pastValue ref v && IsNull v } ->
+                    {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> x < v}> a) | r = ref } @-}
+downcast_set_null :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
+downcast_set_null r x v = downcast r v
+
+{-@ valnode_stable :: forall <q :: a -> Prop>.
+                      x:a ->
+                      v1:{v:Set<q> a | (IsNode v || IsDel v) && (val v < x) } ->
+                      v2:{v:Set<q> a | SetRG v1 v } ->
+                      {v:Set<q> a | (IsNode v || IsDel v) && (val v < x) && (v = v2) } @-}
+valnode_stable :: a -> Set a -> Set a -> Set a
+valnode_stable x v1 v2 = liquidAssume (isDelOnly v1) (liquidAssume (isNodeOnly v1) v2)
+-- ^^ could maybe drop the isnode|isdel refinement above if I also injected exclusions for head and
+-- null nodes...
+
+{-@ prove_lb :: forall <z :: a -> Prop>.
+             ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) ->
+             x:a ->
+             {n:(Set <z> a)<{\s -> val s < x}> | (IsNode n || IsDel n) && (pastValue ref n) } ->
+             {r:RGRef<{\n -> (IsNode n || IsDel n) && val n < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <z> a) | r = ref } @-}
+prove_lb :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
+prove_lb ref x v = (injectStableSet ref (v))
+--prove_lb ref x v = (injectStable2 (valnode_stable x) ref (v))
+-- Above, the q parameter to injectStable seems to be getting chosen as [SetRG v] or [\_-> 1 > 0]
+-- depending on whether or not I fully apply injectStable...  can maybe fix by taking explicit
+-- stability proof argument like I used to
+  --where
+  --  {- help :: forall <q :: a -> Prop>.
+  --           ref2:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <q> a) ->
+  --           {n2:(Set <q> a) | (pastValue ref2 n2) && (val n2 < x) && (IsNode n2) } ->
+  --           {r2:RGRef<{\n -> val n < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <q> a) | r2 = ref2 } -}
+  --  help :: RGRef (Set a) -> Set a -> RGRef (Set a)
+  --  help = injectStable
+
+{-@ test_covar :: ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> v > 3}> Int) ->
+                  {r2:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> v > 1}> Int) | r2 = ref } @-}
+test_covar :: RGRef (Set Int) -> RGRef (Set Int)
+test_covar ref = safe_covar ref
+
+                
+
+
+
+
+insert :: Ord a => SetHandle a -> a -> IO Bool
+insert (SetHandle head _) x =
+  do startPtr <- readIORef head
+     go startPtr
+  where
+     -- Note that the RGRef predicate ensures that we're at the start of the list or inserting x just
+     -- after prevPtr will preserve sortedness up to that insertion.
+     {-@ go :: forall <p :: a -> Prop >.
+               RGRef<{\nd -> IsHead nd || val nd < x},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) -> IO Bool @-}
+     go !prevPtr =
+        do prevNode <- readRGRef2 prevPtr
+           -- note this next line skips over the head 
+           let curPtr = myNext prevNode
+           curNode <- forgetIOTriple (readRGRef curPtr)
+           case curNode of
+             Node y lb nextNode ->
+                if x == y
+                then return False --- already present, not added
+                else if y < x
+                     then go (prove_lb curPtr x curNode)
+                     else --- insertion!  add between previous and current
+                        case prevNode of
+                          Node prevVal vlb q -> do -- use downcast_set as a form of injectStable that can change parameter instantiation
+                                                   -- since Set<{\v -> y < val v}> a <: Set <{\v -> x < val v}> a
+                                                   -- doesn't quite fit LH's subtyping schemata
+                                                   let newNode = (Node x x (downcast_set curPtr x curNode))
+                                                   b <- rgCASpublish newNode prevPtr prevNode (\ptr -> Node prevVal prevVal ptr)
+                                                   if b then return True else go prevPtr
+                          Head _ -> do let newNode = (Node x x (downcast_set curPtr x curNode))
+                                       b <- rgCASpublish newNode prevPtr prevNode (\ptr -> Head ptr)
+                                       if b then return True else go prevPtr
+                          DelNode _ _ _ -> do newhd <- readIORef head
+                                              go newhd -- predecessor deleted, restart
+             Null -> case prevNode of
+                       Node prevVal vlb q -> do let curPtrC = downcast_set_null curPtr x curNode
+                                                let newNode = (Node x x curPtrC)
+                                                b <- rgCASpublish newNode prevPtr prevNode (\ptr -> Node prevVal prevVal ptr)
+                                                if b then return True else go prevPtr
+                       Head _ -> do let newNode = (Node x x (downcast_set_null curPtr x curNode))
+                                    b <- rgCASpublish newNode prevPtr prevNode (\ptr -> Head ptr)
+                                    if b then return True else go prevPtr
+                       DelNode _ _ _ -> do newhd <- readIORef head
+                                           go newhd -- predecessor deleted, restart
+             DelNode v lb nextNode -> 
+                     case prevNode of
+                       Node prevVal vlb q -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) (nextNode))
+                                                b <- rgSetCAS prevPtr prevNode (Node prevVal (liquidAssert (prevVal < v) lb) (refinedtail))
+                                                go prevPtr -- if b then go prevPtr else go curPtr
+                       Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                                    go prevPtr --if b then go prevPtr else go curPtr
+                       DelNode _ _ _ -> do newhd <- readIORef head
+                                           go newhd-- predecessor now deleted, need to restart
+
 
 find :: Ord a => SetHandle a -> a -> IO Bool
 find (SetHandle head _) x =
@@ -240,12 +368,6 @@ find (SetHandle head _) x =
                 RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) -> IO Bool @-}
       go !prevPtr =
            do prevNode <-  readRGRef2 prevPtr
-              --prevNode2 <- readRGRef2 prevPtr
-              readRGRef2 prevPtr >>= (return . (typecheck_pastval prevPtr))
-              _ <- return (typecheck_pastval prevPtr prevNode)
-              --_ <- return (typecheck_pastval prevPtr prevNode2)
-              -- !!! What's the <p> parameter on curPtr's Set?  Looking at the HTML hovers, it looks
-              -- like it's True rather than anything about a bound relating it do prevNode...
               let curPtr = myNext prevNode -- head/node/delnode have all next
               curNode <- forgetIOTriple (readRGRef curPtr)
               case curNode of
@@ -254,20 +376,14 @@ find (SetHandle head _) x =
                    then -- node found and alive 
                       return True
                    else go curPtr -- continue
-                Null -> return False -- reached end of list
+                Null -> return False -- reached end of list; TODO short-circuit based on bounds
                 DelNode v lb nextNode -> 
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
                           Node prevVal vlb q -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) (nextNode))
                                                    let _ = liquidAssert (q == curPtr) True
-                                                   --let comp = liquidAssertB (prevVal < v)
-                                                   -- TODO: using liquidAssume (prevVal < v) discharges the
-                                                   -- refinement, but seems to feed back to the
-                                                   -- liquidAssert above, too.  That's... bad.  but
-                                                   -- at least I know I'm trying to prove the right
-                                                   -- thing.
-                                                   b <- rgSetCAS prevPtr prevNode (Node prevVal (liquidAssert (prevVal < v) lb) (refinedtail))
+                                                   b <- rgSetCAS prevPtr prevNode (Node prevVal vlb (safe_covar refinedtail))
                                                    if b then go prevPtr else go curPtr
                           Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
@@ -294,20 +410,19 @@ delete (SetHandle head _) x =
                          if b then return True
                           else go prevPtr -- spin
                    else go curPtr -- continue
-                Null -> return False -- reached end of list
+                Null -> return False -- reached end of list; TODO shortcircuit
                 DelNode v lb nextNode -> 
                          -- atomically delete curNode by setting the next of prevNode to next of curNode
                          -- if this fails we simply move ahead
                         case prevNode of
-                          Node v2 v2lb _ -> do b <- rgSetCAS prevPtr prevNode (Node v2 lb (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
+                          Node v2 v2lb _ -> do let refinedtail = (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode)
+                                               b <- rgSetCAS prevPtr prevNode (Node v2 v2lb (safe_covar refinedtail))
                                                if b then go prevPtr else go curPtr
                           --Head {} -> do b <- rgSetCAS prevPtr prevNode (Head nextNode)
                           Head _ -> do b <- rgSetCAS prevPtr prevNode (Head (liquidAssume (axiom_pastIsTerminal curPtr curNode (terminal_listrg curPtr curNode) (terminal_listrg curPtr curNode)) nextNode))
                                        if b then go prevPtr else go curPtr
                           DelNode _ _ _ -> go curPtr    -- if parent deleted simply move ahead
 
-  --in do startPtr <- readIORef head
-  --      go startPtr
 
 
 
