@@ -37,5 +37,9 @@ Dependencies
 ------------
 Last tested with:
 
-* ucsd-progsys/liquid-fixpoint@105972be489089b9079328ce0772729efefd06b8
-* ucsd-progsys/liquidhaskell@9c0cad2ca624b899697da396c145f487edb0654b
+* ucsd-progsys/liquid-fixpoint@aa537dd839649bd049b6e45f5078c32bdea01774
+  - Commit from Mon Sep 14 21:32:59 2015 -0700 "update LH tests" 
+* ucsd-progsys/liquidhaskell@98a2c45f50562b9908d053a1c9346503d4bcac96
+  - Commit from Tue Sep 15 00:52:12 2015 -0700 "Merge pull request #451 from ucsd-progsys/qualifs"
+
+Note that these are the latest commit hashes as of April 7, 2016; the hashes have changed before due to history rewriting, but can be found again by searching the relevant date and commit message in the log.
