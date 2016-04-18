@@ -250,21 +250,28 @@ terminal_listrg rf v x y = liquidAssume (isDelOnly x) y
 injectStableSet :: RGRef (Set a) -> (Set a) -> RGRef (Set a)
 injectStableSet ref v = liquidAssume undefined ref
 
-{-@ downcast_set :: forall <p :: a -> Prop>. 
+-- Don't need analogue of second bound of downcast, since the rgref's p is simply any
+-- { x::a,s::(Set <{\v -> x < v}> a) |- (Set <{\v -> x < v}> a)<SetRG s> <: (Set <{\v -> x < v}> a)<{\x -> (1 > 0)}> }
+-- Another manual instantiation of an axiom, which shouldn't be necessary: downcast[a:=Set <{\v -> x < v}> a][b:=Set <p> a]
+{-@ assume downcast_set :: forall <p :: a -> Prop>. 
+                    { x::a |- { v:a | x < v } <: a<p> }
+                    { x::a |- Set <{\v -> x < v}> a <: Set <p> a }
                     ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) ->
                     x:a ->
                     {v:(Set <p> a) | pastValue ref v && x < val v } ->
                     {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> x < v}> a) | r = ref } @-}
 downcast_set :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
-downcast_set r x v = downcast r v
+downcast_set r x v = liquidAssume undefined (downcast r v)
 
-{-@ downcast_set_null :: forall <p :: a -> Prop>. 
+-- Another manual instantiation of an axiom: downcast[a:=Set <{\v -> x < v}> a][b:=Set <p> a]
+{-@ assume downcast_set_null :: forall <p :: a -> Prop>. 
+                    { x::a |- Set <{\v -> x < v}> a <: Set <p> a }
                     ref:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <p> a) ->
                     x:a ->
                     {v:(Set <p> a) | pastValue ref v && IsNull v } ->
                     {r:RGRef<{\x -> (1 > 0)},{\x y -> (SetRG x y)},{\x y -> (SetRG x y)}> (Set <{\v -> x < v}> a) | r = ref } @-}
 downcast_set_null :: RGRef (Set a) -> a -> Set a -> RGRef (Set a)
-downcast_set_null r x v = downcast r v
+downcast_set_null r x v = liquidAssume undefined (downcast r v)
 
 {-@ valnode_stable :: forall <q :: a -> Prop>.
                       x:a ->
