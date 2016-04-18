@@ -35,11 +35,16 @@ and being a refinement of a language with real programs!  The main simplificatio
 
 Dependencies
 ------------
-Last tested with:
+At some point there was some history rewriting in the liquid-fixpoint and liquidhaskell
+repositories; it looks like the old external dependencies that had been checked in (OCaml
+dependencies) had been purged from the repository, which both changes all the git hashes and breaks
+checkouts of older commits.
 
-* ucsd-progsys/liquid-fixpoint@aa537dd839649bd049b6e45f5078c32bdea01774
-  - Commit from Mon Sep 14 21:32:59 2015 -0700 "update LH tests" 
-* ucsd-progsys/liquidhaskell@98a2c45f50562b9908d053a1c9346503d4bcac96
-  - Commit from Tue Sep 15 00:52:12 2015 -0700 "Merge pull request #451 from ucsd-progsys/qualifs"
+Currently you should use the HEAD of the following repositories:
+- [csgordon/liquid-fixpoint-snapshot](https://github.com/csgordon/liquid-fixpoint-snapshot) as a
+  pre-rewriting stand-in for ucsd-progsys/liquid-fixpoint
+- [csgordon/liquidhaskell-snapshot](https://github.com/csgordon/liquidhaskell-snapshot) as a
+  pre-rewriting stand-in for ucsd-progsys/liquidhaskell
 
-Note that these are the latest commit hashes as of April 7, 2016; the hashes have changed before due to history rewriting, but can be found again by searching the relevant date and commit message in the log.
+See also the VM image linked from the main [rely-guarantee references
+page](https://csgordon.github.io/rgref).
