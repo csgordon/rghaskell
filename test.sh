@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # STMLog example is broken due to LH regression
-for f in RG.hs RGTests.hs examples/MonotonicCounter.hs examples/LockfreeMonotonicCounter.hs examples/CASList.hs examples/HellerSet.hs;
+for f in RG.hs RGTests.hs examples/MonotonicCounter.hs examples/LockfreeMonotonicCounter.hs examples/MonotonicCounterClient.hs examples/CASList.hs examples/HellerSet.hs;
 do 
 liquid $f --no-prune-unsorted &> /dev/null;
 RET="$?"
